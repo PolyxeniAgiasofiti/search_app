@@ -31,24 +31,43 @@ app_ui = ui.page_fluid(
             color: #222;
         }
 
+        .search-box {
+            width: 100%;
+            max-width: 760px;
+            margin: 0 auto;
+        }
+
+        .search-box textarea {
+            width: 100%;
+            min-height: 130px;
+            padding: 18px 20px;
+            font-size: 17px;
+            line-height: 1.5;
+            border: 1px solid #c8c8c8;
+            border-radius: 16px;
+            resize: vertical;
+            box-sizing: border-box;
+            background-color: white;
+        }
+
+        .search-box textarea:focus {
+            border-color: #777;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.05);
+        }
+
         .search-button {
-            margin-top: 15px;
+            margin-top: 22px;
             padding: 12px 35px;
             font-size: 17px;
             border-radius: 8px;
         }
 
         .result-box {
-            margin-top: 40px;
+            max-width: 760px;
+            margin: 40px auto 0 auto;
             font-size: 18px;
             text-align: left;
-        }
-
-        input.form-control {
-            height: 60px;
-            font-size: 18px;
-            padding: 15px 20px;
-            border-radius: 12px;
         }
     """),
 
@@ -60,14 +79,19 @@ app_ui = ui.page_fluid(
         ),
 
         ui.div(
-            "What would you like to search today?",
+            "What topic would you like to analyze today?",
             class_="question-title"
         ),
 
-        ui.input_text(
-            "search_query",
-            label=None,
-            placeholder="Describe what you would like to explore..."
+        ui.div(
+            ui.input_text_area(
+                "search_query",
+                label=None,
+                placeholder="Describe the topic you would like to analyze...",
+                rows=5,
+                width="100%"
+            ),
+            class_="search-box"
         ),
 
         ui.input_action_button(
@@ -91,13 +115,13 @@ def server(input, output, session):
     @reactive.calc
     @reactive.event(input.search_button)
     def search_request():
+
         query = input.search_query()
 
         if not query:
             return None
 
         return query.strip()
-
 
     @output
     @render.ui
