@@ -1,3 +1,4 @@
+from database import init_database
 from shiny import App, ui, render, reactive
 from ai_service import analyze_topic, revise_topic_analysis
 
@@ -538,5 +539,5 @@ def server(input, output, session):
             class_="review-message"
         )
 
-
+init_database()
 app = App(app_ui, server)
