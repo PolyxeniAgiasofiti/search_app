@@ -83,3 +83,28 @@ def init_database():
             )
 
         conn.commit()
+
+def save_research_run(topic, definition, data_targets):
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+
+            cur.execute(
+                f"""
+                INSERT INTO {SCHEMA}.research_runs
+                (topic, definition, data_targets)
+                VALUES (%s, %s, %s)
+                RETURNING id;
+                """,
+                (
+                    topic,
+                    definition,
+                    psycopg.types.json.Jsonb(data_targets)
+                )
+            )
+
+            research_run_id = cur.fetchone()[0]
+
+        conn.commit()
+
+    return research_run_id

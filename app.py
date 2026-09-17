@@ -1,4 +1,4 @@
-from database import init_database
+from database import init_database, save_research_run
 from shiny import App, ui, render, reactive
 from ai_service import analyze_topic, revise_topic_analysis
 
@@ -185,6 +185,8 @@ def server(input, output, session):
     definition_approved = reactive.Value(False)
     data_approved = reactive.Value(False)
 
+    research_run_id = reactive.Value(None)
+
 
     # -----------------------------------
     # FIRST ANALYSIS
@@ -222,6 +224,8 @@ def server(input, output, session):
 
         definition_approved.set(False)
         data_approved.set(False)
+
+        research_run_id.set(None)
 
 
     # -----------------------------------
@@ -373,6 +377,41 @@ def server(input, output, session):
 
 
     # -----------------------------------
+    # SAVE APPROVED RESEARCH RUN
+    # -----------------------------------
+
+    def try_save_research_run():
+
+        if not definition_approved.get():
+            return
+
+        if not data_approved.get():
+            return
+
+        # Prevent saving the same run twice
+        if research_run_id.get() is not None:
+            return
+
+        result = revised_result.get()
+
+        if result is None:
+            result = search_request()
+
+        if not result:
+            return
+
+        topic = input.search_query().strip()
+
+        run_id = save_research_run(
+            topic=topic,
+            definition=result["definition"],
+            data_targets=result["data_needed"]
+        )
+
+        research_run_id.set(run_id)
+
+
+    # -----------------------------------
     # HANDLE DEFINITION CONFIRMATION
     # -----------------------------------
 
@@ -396,6 +435,8 @@ def server(input, output, session):
             definition_message.set(
                 "Definition approved."
             )
+
+            try_save_research_run()
 
             return
 
@@ -461,6 +502,8 @@ def server(input, output, session):
             data_message.set(
                 "Data targets approved."
             )
+
+            try_save_research_run()
 
             return
 
