@@ -372,7 +372,8 @@ def server(input, output, session):
                 ui.output_ui("data_status"),
 
                 class_="analysis-section"
-            )
+            ),
+            ui.output_ui("public_data_step")
         )
 
 
@@ -580,6 +581,119 @@ def server(input, output, session):
         return ui.div(
             message,
             class_="review-message"
+        )
+        # -----------------------------------
+    # PUBLIC DATA SEARCH STEP
+    # -----------------------------------
+
+    @output
+    @render.ui
+    def public_data_step():
+
+        if not definition_approved.get():
+            return None
+
+        if not data_approved.get():
+            return None
+
+        run_id = research_run_id.get()
+
+        if run_id is None:
+            return None
+
+        return ui.div(
+
+            ui.tags.h3(
+                "Ready to search for public data"
+            ),
+
+            ui.tags.p(
+                "The definition and data targets have been approved "
+                "and the research run has been saved."
+            ),
+
+            ui.input_action_button(
+                "search_public_data",
+                "Search public data",
+                class_="btn-primary search-button"
+            ),
+
+            class_="analysis-section"
+        )    # -----------------------------------
+    # PUBLIC DATA SEARCH STEP
+    # -----------------------------------
+
+    @output
+    @render.ui
+    def public_data_step():
+
+        if not definition_approved.get():
+            return None
+
+        if not data_approved.get():
+            return None
+
+        run_id = research_run_id.get()
+
+        if run_id is None:
+            return None
+
+        return ui.div(
+
+            ui.tags.h3(
+                "Ready to search for public data"
+            ),
+
+            ui.tags.p(
+                "The definition and data targets have been approved "
+                "and the research run has been saved."
+            ),
+
+            ui.input_action_button(
+                "search_public_data",
+                "Search public data",
+                class_="btn-primary search-button"
+            ),
+
+            class_="analysis-section"
+        )
+        # -----------------------------------
+    # PUBLIC DATA SEARCH STEP
+    # -----------------------------------
+
+    @output
+    @render.ui
+    def public_data_step():
+
+        if not definition_approved.get():
+            return None
+
+        if not data_approved.get():
+            return None
+
+        run_id = research_run_id.get()
+
+        if run_id is None:
+            return None
+
+        return ui.div(
+
+            ui.tags.h3(
+                "Ready to search for public data"
+            ),
+
+            ui.tags.p(
+                "The definition and data targets have been approved "
+                "and the research run has been saved."
+            ),
+
+            ui.input_action_button(
+                "search_public_data",
+                "Search public data",
+                class_="btn-primary search-button"
+            ),
+
+            class_="analysis-section"
         )
 
 init_database()
