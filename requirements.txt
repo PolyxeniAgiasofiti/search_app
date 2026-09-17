@@ -2,3 +2,4 @@ shiny
 uvicorn
 google-genai
 psycopg[binary]
+tavily-python
