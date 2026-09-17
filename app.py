@@ -1,5 +1,5 @@
 from shiny import App, ui, render, reactive
-from ai_service import analyze_topic
+from ai_service import analyze_topic , revise_topic_analysis
 
 app_ui = ui.page_fluid(
 
@@ -99,9 +99,38 @@ app_ui = ui.page_fluid(
     color: #555;
     line-height: 1.5;
 }
+.verification-section {
+    margin-top: 45px;
+    padding: 25px;
+    background-color: white;
+    border: 1px solid #dddddd;
+    border-radius: 14px;
+    text-align: left;
+}
 
+.verification-section h3 {
+    margin-top: 0;
+    margin-bottom: 12px;
+}
 
+.verification-section textarea {
+    margin-top: 10px;
+    border-radius: 10px;
+}
 
+.confirm-button {
+    margin-top: 15px;
+    padding: 10px 28px;
+    border-radius: 8px;
+}
+
+.review-message {
+    margin-top: 20px;
+    padding: 14px 18px;
+    background-color: #f1f3f5;
+    border-radius: 10px;
+    font-weight: 500;
+}
 
     """),
 
@@ -146,6 +175,14 @@ app_ui = ui.page_fluid(
 
 def server(input, output, session):
 
+    revised_result = reactive.Value(None)
+    review_message = reactive.Value(None)
+
+
+    # -----------------------------------
+    # FIRST ANALYSIS
+    # -----------------------------------
+
     @reactive.calc
     @reactive.event(input.search_button)
     def search_request():
@@ -165,11 +202,30 @@ def server(input, output, session):
         return result
 
 
+    # -----------------------------------
+    # RESET WHEN USER MAKES A NEW SEARCH
+    # -----------------------------------
+
+    @reactive.effect
+    @reactive.event(input.search_button)
+    def reset_review():
+
+        revised_result.set(None)
+        review_message.set(None)
+
+
+    # -----------------------------------
+    # DISPLAY ANALYSIS
+    # -----------------------------------
+
     @output
     @render.ui
     def search_result():
 
-        result = search_request()
+        result = revised_result.get()
+
+        if result is None:
+            result = search_request()
 
         if not result:
             return None
@@ -188,18 +244,137 @@ def server(input, output, session):
 
         return ui.div(
 
+            # Definition
             ui.div(
                 ui.tags.h3("Definition"),
                 ui.tags.p(result["definition"]),
                 class_="analysis-section"
             ),
 
+            # Data requirements
             ui.div(
                 ui.tags.h3("Data needed for the study"),
                 *data_cards,
                 class_="analysis-section"
+            ),
+
+            # User verification
+            ui.div(
+
+                ui.tags.h3("Review the analysis"),
+
+                ui.tags.p(
+                    "Do you accept the definition and the proposed data requirements?"
+                ),
+
+                ui.input_radio_buttons(
+                    "analysis_acceptance",
+                    label=None,
+                    choices={
+                        "yes": "Yes, I accept them",
+                        "no": "No, I would like to make changes"
+                    }
+                ),
+
+                ui.input_text_area(
+                    "user_feedback",
+                    label="Add your input if necessary",
+                    placeholder=(
+                        "Add any corrections, comments, "
+                        "or additional data requirements here..."
+                    ),
+                    rows=4,
+                    width="100%"
+                ),
+
+                ui.input_action_button(
+                    "confirm_analysis",
+                    "Confirm",
+                    class_="btn-primary confirm-button"
+                ),
+
+                ui.output_ui("review_status"),
+
+                class_="verification-section"
             )
         )
 
 
-app = App(app_ui, server)
+    # -----------------------------------
+    # HANDLE USER CONFIRMATION
+    # -----------------------------------
+
+    @reactive.effect
+    @reactive.event(input.confirm_analysis)
+    def handle_confirmation():
+
+        choice = input.analysis_acceptance()
+
+        if not choice:
+            review_message.set(
+                "Please select whether you accept the analysis."
+            )
+            return
+
+        # User accepts the analysis
+        if choice == "yes":
+
+            review_message.set(
+                "Analysis confirmed."
+            )
+
+            return
+
+        # User wants changes
+        feedback = input.user_feedback()
+
+        if not feedback or not feedback.strip():
+
+            review_message.set(
+                "Please describe what you would like to change."
+            )
+
+            return
+
+        feedback = feedback.strip()
+
+        current_result = revised_result.get()
+
+        if current_result is None:
+            current_result = search_request()
+
+        topic = input.search_query().strip()
+
+        new_result = revise_topic_analysis(
+            topic,
+            current_result,
+            feedback
+        )
+
+        revised_result.set(new_result)
+
+        review_message.set(
+            "The analysis has been revised. Please review it again."
+        )
+
+
+    # -----------------------------------
+    # DISPLAY REVIEW MESSAGE
+    # -----------------------------------
+
+    @output
+    @render.ui
+    def review_status():
+
+        message = review_message.get()
+
+        if not message:
+            return None
+
+        return ui.div(
+            message,
+            class_="review-message"
+        )
+
+
+    app = App(app_ui, server)
