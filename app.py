@@ -1,5 +1,5 @@
 from shiny import App, ui, render, reactive
-
+from ai_service import analyze_topic
 
 app_ui = ui.page_fluid(
 
@@ -69,6 +69,40 @@ app_ui = ui.page_fluid(
             font-size: 18px;
             text-align: left;
         }
+
+        .analysis-section {
+    margin-top: 35px;
+    text-align: left;
+}
+
+.analysis-section h3 {
+    font-size: 24px;
+    margin-bottom: 18px;
+}
+
+.data-card {
+    background-color: white;
+    border: 1px solid #dddddd;
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-bottom: 12px;
+}
+
+.data-card h4 {
+    margin-top: 0;
+    margin-bottom: 8px;
+    font-size: 18px;
+}
+
+.data-card p {
+    margin-bottom: 0;
+    color: #555;
+    line-height: 1.5;
+}
+
+
+
+
     """),
 
     ui.div(
@@ -116,25 +150,55 @@ def server(input, output, session):
     @reactive.event(input.search_button)
     def search_request():
 
-        query = input.search_query()
+        topic = input.search_query()
 
-        if not query:
+        if not topic:
             return None
 
-        return query.strip()
+        topic = topic.strip()
+
+        if not topic:
+            return None
+
+        result = analyze_topic(topic)
+
+        return result
+
 
     @output
     @render.ui
     def search_result():
 
-        query = search_request()
+        result = search_request()
 
-        if not query:
+        if not result:
             return None
 
+        data_cards = []
+
+        for item in result["data_needed"]:
+
+            data_cards.append(
+                ui.div(
+                    ui.tags.h4(item["name"]),
+                    ui.tags.p(item["reason"]),
+                    class_="data-card"
+                )
+            )
+
         return ui.div(
-            ui.tags.strong("You searched for:"),
-            ui.tags.p(query)
+
+            ui.div(
+                ui.tags.h3("Definition"),
+                ui.tags.p(result["definition"]),
+                class_="analysis-section"
+            ),
+
+            ui.div(
+                ui.tags.h3("Data needed for the study"),
+                *data_cards,
+                class_="analysis-section"
+            )
         )
 
 
