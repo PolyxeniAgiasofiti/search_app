@@ -1,7 +1,11 @@
-from database import init_database, save_research_run
+from database import (
+    init_database,
+    save_research_run,
+    save_dataset_candidates
+)
 from shiny import App, ui, render, reactive
 from ai_service import analyze_topic, revise_topic_analysis
-
+from data_service import search_public_datasets
 
 app_ui = ui.page_fluid(
 
@@ -186,7 +190,7 @@ def server(input, output, session):
     data_approved = reactive.Value(False)
 
     research_run_id = reactive.Value(None)
-
+    discovered_datasets = reactive.Value(None)
 
     # -----------------------------------
     # FIRST ANALYSIS
@@ -226,7 +230,7 @@ def server(input, output, session):
         data_approved.set(False)
 
         research_run_id.set(None)
-
+        discovered_datasets.set(None)
 
     # -----------------------------------
     # DISPLAY ANALYSIS
@@ -617,84 +621,91 @@ def server(input, output, session):
                 "Search public data",
                 class_="btn-primary search-button"
             ),
-
+            ui.output_ui("public_dataset_results"),
             class_="analysis-section"
         )    # -----------------------------------
     # PUBLIC DATA SEARCH STEP
     # -----------------------------------
 
+
     @output
     @render.ui
-    def public_data_step():
+    def public_dataset_results():
 
-        if not definition_approved.get():
+        datasets = discovered_datasets.get()
+
+        if not datasets:
             return None
 
-        if not data_approved.get():
-            return None
+        cards = []
 
-        run_id = research_run_id.get()
+        for dataset in datasets:
 
-        if run_id is None:
-            return None
+            cards.append(
+                ui.div(
+
+                    ui.tags.h4(
+                        dataset["title"]
+                    ),
+
+                    ui.tags.p(
+                        ui.tags.strong("Data target: "),
+                        dataset.get("data_target", "")
+                    ),
+
+                    ui.tags.p(
+                        ui.tags.strong("Publisher: "),
+                        dataset.get("publisher", "")
+                    ),
+
+                    ui.tags.p(
+                        dataset.get("description", "")
+                    ),
+
+                    ui.tags.p(
+                        ui.tags.strong("Geographic coverage: "),
+                        dataset.get(
+                            "geographic_coverage",
+                            "Unknown"
+                        )
+                    ),
+
+                    ui.tags.p(
+                        ui.tags.strong("Time coverage: "),
+                        dataset.get(
+                            "time_coverage",
+                            "Unknown"
+                        )
+                    ),
+
+                    ui.tags.p(
+                        ui.tags.strong("Format: "),
+                        dataset.get(
+                            "format",
+                            "Unknown"
+                        )
+                    ),
+
+                    ui.tags.a(
+                        "Open original source",
+                        href=dataset["source_url"],
+                        target="_blank"
+                    ),
+
+                    class_="data-card"
+                )
+            )
 
         return ui.div(
 
             ui.tags.h3(
-                "Ready to search for public data"
+                "Public datasets found"
             ),
 
-            ui.tags.p(
-                "The definition and data targets have been approved "
-                "and the research run has been saved."
-            ),
-
-            ui.input_action_button(
-                "search_public_data",
-                "Search public data",
-                class_="btn-primary search-button"
-            ),
+            *cards,
 
             class_="analysis-section"
-        )
-        # -----------------------------------
-    # PUBLIC DATA SEARCH STEP
-    # -----------------------------------
-
-    @output
-    @render.ui
-    def public_data_step():
-
-        if not definition_approved.get():
-            return None
-
-        if not data_approved.get():
-            return None
-
-        run_id = research_run_id.get()
-
-        if run_id is None:
-            return None
-
-        return ui.div(
-
-            ui.tags.h3(
-                "Ready to search for public data"
-            ),
-
-            ui.tags.p(
-                "The definition and data targets have been approved "
-                "and the research run has been saved."
-            ),
-
-            ui.input_action_button(
-                "search_public_data",
-                "Search public data",
-                class_="btn-primary search-button"
-            ),
-
-            class_="analysis-section"
-        )
+        )   
 
 init_database()
 app = App(app_ui, server)
