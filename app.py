@@ -1,15 +1,34 @@
+from shiny import App, ui, render, reactive
+
+from ai_service import (
+    analyze_topic,
+    revise_topic_analysis
+)
+
 from database import (
     init_database,
     save_research_run,
     save_dataset_candidates
 )
-from shiny import App, ui, render, reactive
-from ai_service import analyze_topic, revise_topic_analysis
+
 from data_service import search_public_datasets
+
+
+# ---------------------------------------------------------
+# DATABASE INITIALISATION
+# ---------------------------------------------------------
+
+init_database()
+
+
+# ---------------------------------------------------------
+# UI
+# ---------------------------------------------------------
 
 app_ui = ui.page_fluid(
 
-    ui.tags.style("""
+    ui.tags.style(
+        """
         body {
             background-color: #f7f7f7;
             font-family: Arial, sans-serif;
@@ -18,149 +37,84 @@ app_ui = ui.page_fluid(
         .main-container {
             max-width: 850px;
             margin: 0 auto;
-            padding-top: 140px;
-            text-align: center;
+            padding-top: 100px;
+            padding-bottom: 100px;
         }
 
-        .app-title {
-            font-size: 18px;
-            font-weight: 600;
-            letter-spacing: 2px;
-            margin-bottom: 35px;
-            color: #555;
+        .main-title {
+            font-size: 42px;
+            font-weight: 700;
+            margin-bottom: 10px;
         }
 
-        .question-title {
-            font-size: 36px;
-            font-weight: 600;
-            margin-bottom: 30px;
-            color: #222;
+        .main-question {
+            font-size: 22px;
+            margin-bottom: 25px;
         }
 
-        .search-box {
-            width: 100%;
-            max-width: 760px;
-            margin: 0 auto;
-        }
-
-        .search-box textarea {
-            width: 100%;
-            min-height: 130px;
-            padding: 18px 20px;
-            font-size: 17px;
-            line-height: 1.5;
-            border: 1px solid #c8c8c8;
-            border-radius: 16px;
-            resize: vertical;
-            box-sizing: border-box;
-            background-color: white;
-        }
-
-        .search-box textarea:focus {
-            border-color: #777;
-            outline: none;
-            box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.05);
-        }
-
-        .search-button {
-            margin-top: 22px;
-            padding: 12px 35px;
-            font-size: 17px;
-            border-radius: 8px;
-        }
-
-        .result-box {
-            max-width: 760px;
-            margin: 40px auto 0 auto;
-            font-size: 18px;
-            text-align: left;
+        .search-button,
+        .confirm-button {
+            margin-top: 15px;
+            margin-bottom: 15px;
         }
 
         .analysis-section {
-            margin-top: 35px;
-            text-align: left;
-            background-color: white;
-            border: 1px solid #dddddd;
-            border-radius: 14px;
+            background: white;
             padding: 25px;
-        }
-
-        .analysis-section h3 {
-            font-size: 24px;
-            margin-top: 0;
-            margin-bottom: 18px;
+            margin-top: 25px;
+            border-radius: 12px;
+            border: 1px solid #e2e2e2;
         }
 
         .data-card {
-            background-color: #fafafa;
-            border: 1px solid #dddddd;
-            border-radius: 12px;
-            padding: 18px 20px;
-            margin-bottom: 12px;
-        }
-
-        .data-card h4 {
-            margin-top: 0;
-            margin-bottom: 8px;
-            font-size: 18px;
-        }
-
-        .data-card p {
-            margin-bottom: 0;
-            color: #555;
-            line-height: 1.5;
-        }
-
-        .confirm-button {
-            margin-top: 15px;
-            padding: 10px 28px;
+            background: #fafafa;
+            padding: 18px;
+            margin-top: 14px;
+            margin-bottom: 14px;
             border-radius: 8px;
+            border: 1px solid #dddddd;
         }
 
         .review-message {
-            margin-top: 20px;
-            padding: 14px 18px;
-            background-color: #f1f3f5;
-            border-radius: 10px;
-            font-weight: 500;
+            margin-top: 15px;
+            padding: 12px;
+            background: #f1f1f1;
+            border-radius: 8px;
         }
 
         .scope-warning {
-            margin-top: 35px;
-            padding: 25px;
-            background-color: white;
-            border: 1px solid #dddddd;
-            border-radius: 14px;
-            text-align: left;
+            background: #fff4e5;
+            border: 1px solid #f0c36d;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 25px;
         }
 
-        hr {
-            margin-top: 25px;
-            margin-bottom: 20px;
+        .dataset-link {
+            display: inline-block;
+            margin-top: 8px;
         }
-    """),
+        """
+    ),
 
     ui.div(
 
-        ui.div(
+        ui.tags.h1(
             "Data Observatory",
-            class_="app-title"
+            class_="main-title"
         ),
 
-        ui.div(
+        ui.tags.p(
             "What topic would you like to analyze today?",
-            class_="question-title"
+            class_="main-question"
         ),
 
-        ui.div(
-            ui.input_text_area(
-                "search_query",
-                label=None,
-                placeholder="Describe the topic you would like to analyze...",
-                rows=5,
-                width="100%"
-            ),
-            class_="search-box"
+        ui.input_text_area(
+            "search_query",
+            label=None,
+            placeholder="For example: Gerontocracy",
+            rows=5,
+            width="100%"
         ),
 
         ui.input_action_button(
@@ -169,15 +123,16 @@ app_ui = ui.page_fluid(
             class_="btn-primary search-button"
         ),
 
-        ui.div(
-            ui.output_ui("search_result"),
-            class_="result-box"
-        ),
+        ui.output_ui("search_result"),
 
         class_="main-container"
     )
 )
 
+
+# ---------------------------------------------------------
+# SERVER
+# ---------------------------------------------------------
 
 def server(input, output, session):
 
@@ -190,11 +145,15 @@ def server(input, output, session):
     data_approved = reactive.Value(False)
 
     research_run_id = reactive.Value(None)
+
     discovered_datasets = reactive.Value(None)
 
-    # -----------------------------------
-    # FIRST ANALYSIS
-    # -----------------------------------
+    public_data_status_value = reactive.Value(None)
+
+
+    # -----------------------------------------------------
+    # INITIAL TOPIC ANALYSIS
+    # -----------------------------------------------------
 
     @reactive.calc
     @reactive.event(input.search_button)
@@ -213,9 +172,9 @@ def server(input, output, session):
         return analyze_topic(topic)
 
 
-    # -----------------------------------
-    # RESET WHEN USER MAKES A NEW SEARCH
-    # -----------------------------------
+    # -----------------------------------------------------
+    # RESET WHEN A NEW SEARCH IS STARTED
+    # -----------------------------------------------------
 
     @reactive.effect
     @reactive.event(input.search_button)
@@ -230,11 +189,15 @@ def server(input, output, session):
         data_approved.set(False)
 
         research_run_id.set(None)
+
         discovered_datasets.set(None)
 
-    # -----------------------------------
+        public_data_status_value.set(None)
+
+
+    # -----------------------------------------------------
     # DISPLAY ANALYSIS
-    # -----------------------------------
+    # -----------------------------------------------------
 
     @output
     @render.ui
@@ -249,30 +212,49 @@ def server(input, output, session):
             return None
 
 
-        # Guardrail result
+        # OUT OF SCOPE
         if result.get("in_scope") is False:
 
             return ui.div(
-                ui.tags.h3("Topic outside the scope"),
+
+                ui.tags.h3(
+                    "Topic outside the scope"
+                ),
+
                 ui.tags.p(
                     result.get(
                         "scope_message",
                         "This topic is outside the scope of the Data Observatory."
                     )
                 ),
+
                 class_="scope-warning"
             )
 
 
-        # Create cards for data targets
+        # BUILD DATA TARGET CARDS
         data_cards = []
 
         for item in result.get("data_needed", []):
 
             data_cards.append(
+
                 ui.div(
-                    ui.tags.h4(item["name"]),
-                    ui.tags.p(item["reason"]),
+
+                    ui.tags.h4(
+                        item.get(
+                            "name",
+                            "Data target"
+                        )
+                    ),
+
+                    ui.tags.p(
+                        item.get(
+                            "reason",
+                            ""
+                        )
+                    ),
+
                     class_="data-card"
                 )
             )
@@ -280,16 +262,21 @@ def server(input, output, session):
 
         return ui.div(
 
-            # ===================================
-            # DEFINITION REVIEW
-            # ===================================
+            # ---------------------------------------------
+            # DEFINITION
+            # ---------------------------------------------
 
             ui.div(
 
-                ui.tags.h3("Definition"),
+                ui.tags.h3(
+                    "Definition"
+                ),
 
                 ui.tags.p(
-                    result["definition"]
+                    result.get(
+                        "definition",
+                        ""
+                    )
                 ),
 
                 ui.tags.hr(),
@@ -302,8 +289,11 @@ def server(input, output, session):
                     "definition_acceptance",
                     label=None,
                     choices={
-                        "yes": "Yes, I accept this definition",
-                        "no": "No, I would like to make changes"
+                        "yes":
+                            "Yes, I accept this definition",
+
+                        "no":
+                            "No, I would like to make changes"
                     }
                 ),
 
@@ -312,7 +302,7 @@ def server(input, output, session):
                     label="Add your input if necessary",
                     placeholder=(
                         "Describe any corrections or changes "
-                        "you would like to make to the definition..."
+                        "you would like to make..."
                     ),
                     rows=3,
                     width="100%"
@@ -324,19 +314,23 @@ def server(input, output, session):
                     class_="btn-primary confirm-button"
                 ),
 
-                ui.output_ui("definition_status"),
+                ui.output_ui(
+                    "definition_status"
+                ),
 
                 class_="analysis-section"
             ),
 
 
-            # ===================================
-            # DATA TARGETS REVIEW
-            # ===================================
+            # ---------------------------------------------
+            # DATA TARGETS
+            # ---------------------------------------------
 
             ui.div(
 
-                ui.tags.h3("Data targets"),
+                ui.tags.h3(
+                    "Data targets"
+                ),
 
                 *data_cards,
 
@@ -350,8 +344,11 @@ def server(input, output, session):
                     "data_acceptance",
                     label=None,
                     choices={
-                        "yes": "Yes, I accept these data targets",
-                        "no": "No, I would like to make changes"
+                        "yes":
+                            "Yes, I accept these data targets",
+
+                        "no":
+                            "No, I would like to make changes"
                     }
                 ),
 
@@ -373,17 +370,27 @@ def server(input, output, session):
                     class_="btn-primary confirm-button"
                 ),
 
-                ui.output_ui("data_status"),
+                ui.output_ui(
+                    "data_status"
+                ),
 
                 class_="analysis-section"
             ),
-            ui.output_ui("public_data_step")
+
+
+            # ---------------------------------------------
+            # PUBLIC DATA SEARCH
+            # ---------------------------------------------
+
+            ui.output_ui(
+                "public_data_step"
+            )
         )
 
 
-    # -----------------------------------
+    # -----------------------------------------------------
     # SAVE APPROVED RESEARCH RUN
-    # -----------------------------------
+    # -----------------------------------------------------
 
     def try_save_research_run():
 
@@ -393,9 +400,9 @@ def server(input, output, session):
         if not data_approved.get():
             return
 
-        # Prevent saving the same run twice
         if research_run_id.get() is not None:
             return
+
 
         result = revised_result.get()
 
@@ -405,7 +412,9 @@ def server(input, output, session):
         if not result:
             return
 
+
         topic = input.search_query().strip()
+
 
         run_id = save_research_run(
             topic=topic,
@@ -413,12 +422,15 @@ def server(input, output, session):
             data_targets=result["data_needed"]
         )
 
-        research_run_id.set(run_id)
+
+        research_run_id.set(
+            run_id
+        )
 
 
-    # -----------------------------------
-    # HANDLE DEFINITION CONFIRMATION
-    # -----------------------------------
+    # -----------------------------------------------------
+    # DEFINITION CONFIRMATION
+    # -----------------------------------------------------
 
     @reactive.effect
     @reactive.event(input.confirm_definition)
@@ -426,16 +438,21 @@ def server(input, output, session):
 
         choice = input.definition_acceptance()
 
+
         if not choice:
+
             definition_message.set(
                 "Please select whether you accept the definition."
             )
+
             return
 
 
         if choice == "yes":
 
-            definition_approved.set(True)
+            definition_approved.set(
+                True
+            )
 
             definition_message.set(
                 "Definition approved."
@@ -447,6 +464,7 @@ def server(input, output, session):
 
 
         feedback = input.definition_feedback()
+
 
         if not feedback or not feedback.strip():
 
@@ -474,18 +492,23 @@ def server(input, output, session):
         )
 
 
-        revised_result.set(new_result)
+        revised_result.set(
+            new_result
+        )
 
-        definition_approved.set(False)
+        definition_approved.set(
+            False
+        )
 
         definition_message.set(
-            "The definition has been revised. Please review it again."
+            "The definition has been revised. "
+            "Please review it again."
         )
 
 
-    # -----------------------------------
-    # HANDLE DATA TARGET CONFIRMATION
-    # -----------------------------------
+    # -----------------------------------------------------
+    # DATA TARGET CONFIRMATION
+    # -----------------------------------------------------
 
     @reactive.effect
     @reactive.event(input.confirm_data)
@@ -493,16 +516,21 @@ def server(input, output, session):
 
         choice = input.data_acceptance()
 
+
         if not choice:
+
             data_message.set(
                 "Please select whether you accept the data targets."
             )
+
             return
 
 
         if choice == "yes":
 
-            data_approved.set(True)
+            data_approved.set(
+                True
+            )
 
             data_message.set(
                 "Data targets approved."
@@ -515,10 +543,12 @@ def server(input, output, session):
 
         feedback = input.data_feedback()
 
+
         if not feedback or not feedback.strip():
 
             data_message.set(
-                "Please describe what you would like to add, remove, or change."
+                "Please describe what you would like "
+                "to add, remove, or change."
             )
 
             return
@@ -541,18 +571,23 @@ def server(input, output, session):
         )
 
 
-        revised_result.set(new_result)
+        revised_result.set(
+            new_result
+        )
 
-        data_approved.set(False)
+        data_approved.set(
+            False
+        )
 
         data_message.set(
-            "The data targets have been revised. Please review them again."
+            "The data targets have been revised. "
+            "Please review them again."
         )
 
 
-    # -----------------------------------
-    # DISPLAY DEFINITION STATUS
-    # -----------------------------------
+    # -----------------------------------------------------
+    # DEFINITION STATUS
+    # -----------------------------------------------------
 
     @output
     @render.ui
@@ -569,9 +604,9 @@ def server(input, output, session):
         )
 
 
-    # -----------------------------------
-    # DISPLAY DATA STATUS
-    # -----------------------------------
+    # -----------------------------------------------------
+    # DATA STATUS
+    # -----------------------------------------------------
 
     @output
     @render.ui
@@ -586,9 +621,11 @@ def server(input, output, session):
             message,
             class_="review-message"
         )
-        # -----------------------------------
-    # PUBLIC DATA SEARCH STEP
-    # -----------------------------------
+
+
+    # -----------------------------------------------------
+    # SHOW PUBLIC DATA SEARCH BUTTON
+    # -----------------------------------------------------
 
     @output
     @render.ui
@@ -600,10 +637,16 @@ def server(input, output, session):
         if not data_approved.get():
             return None
 
+
         run_id = research_run_id.get()
 
         if run_id is None:
-            return None
+
+            return ui.div(
+                "Saving approved research request...",
+                class_="review-message"
+            )
+
 
         return ui.div(
 
@@ -612,8 +655,9 @@ def server(input, output, session):
             ),
 
             ui.tags.p(
-                "The definition and data targets have been approved "
-                "and the research run has been saved."
+                "The definition and data targets have been "
+                "approved. The application can now search "
+                "for real publicly available datasets."
             ),
 
             ui.input_action_button(
@@ -621,12 +665,189 @@ def server(input, output, session):
                 "Search public data",
                 class_="btn-primary search-button"
             ),
-            ui.output_ui("public_dataset_results"),
-            class_="analysis-section"
-        )    # -----------------------------------
-    # PUBLIC DATA SEARCH STEP
-    # -----------------------------------
 
+            ui.output_ui(
+                "public_data_status"
+            ),
+
+            ui.output_ui(
+                "public_dataset_results"
+            ),
+
+            class_="analysis-section"
+        )
+
+
+    # -----------------------------------------------------
+    # PUBLIC DATA SEARCH
+    # -----------------------------------------------------
+
+    @reactive.effect
+    @reactive.event(input.search_public_data)
+    def handle_public_data_search():
+
+        try:
+
+            print(
+                "PUBLIC DATA SEARCH STARTED"
+            )
+
+
+            public_data_status_value.set(
+                "Searching for verified public datasets..."
+            )
+
+
+            run_id = research_run_id.get()
+
+
+            if run_id is None:
+
+                public_data_status_value.set(
+                    "Error: the approved research run "
+                    "has not been saved."
+                )
+
+                return
+
+
+            result = revised_result.get()
+
+            if result is None:
+                result = search_request()
+
+
+            if not result:
+
+                public_data_status_value.set(
+                    "Error: no approved analysis was found."
+                )
+
+                return
+
+
+            topic = input.search_query().strip()
+
+
+            print(
+                "TOPIC:",
+                topic
+            )
+
+            print(
+                "NUMBER OF DATA TARGETS:",
+                len(
+                    result.get(
+                        "data_needed",
+                        []
+                    )
+                )
+            )
+
+
+            # ---------------------------------------------
+            # SEARCH TAVILY + GEMINI FILTERING
+            # ---------------------------------------------
+
+            search_result = search_public_datasets(
+                topic=topic,
+                data_targets=result.get(
+                    "data_needed",
+                    []
+                )
+            )
+
+
+            datasets = search_result.get(
+                "datasets",
+                []
+            )
+
+
+            print(
+                "VERIFIED DATASETS FOUND:",
+                len(datasets)
+            )
+
+
+            if not datasets:
+
+                discovered_datasets.set(
+                    []
+                )
+
+                public_data_status_value.set(
+                    "The search completed successfully, "
+                    "but no verified public datasets were found."
+                )
+
+                return
+
+
+            # ---------------------------------------------
+            # SAVE CANDIDATES TO POSTGRESQL
+            # ---------------------------------------------
+
+            saved_datasets = save_dataset_candidates(
+                research_run_id=run_id,
+                datasets=datasets
+            )
+
+
+            discovered_datasets.set(
+                saved_datasets
+            )
+
+
+            public_data_status_value.set(
+                f"Search completed. "
+                f"Found {len(saved_datasets)} "
+                f"verified public datasets."
+            )
+
+
+            print(
+                "PUBLIC DATA SEARCH FINISHED"
+            )
+
+
+        except Exception as e:
+
+            print(
+                "PUBLIC DATA SEARCH ERROR:",
+                repr(e)
+            )
+
+
+            public_data_status_value.set(
+                "Public data search failed: "
+                + str(e)
+            )
+
+
+    # -----------------------------------------------------
+    # PUBLIC DATA STATUS
+    # -----------------------------------------------------
+
+    @output
+    @render.ui
+    def public_data_status():
+
+        message = public_data_status_value.get()
+
+        if not message:
+            return None
+
+
+        return ui.div(
+            message,
+            class_="review-message"
+        )
+
+
+    # -----------------------------------------------------
+    # DISPLAY PUBLIC DATASET RESULTS
+    # -----------------------------------------------------
 
     @output
     @render.ui
@@ -634,67 +855,124 @@ def server(input, output, session):
 
         datasets = discovered_datasets.get()
 
-        if not datasets:
+
+        if datasets is None:
             return None
+
+
+        if len(datasets) == 0:
+
+            return ui.div(
+                "No verified dataset candidates were retained.",
+                class_="review-message"
+            )
+
 
         cards = []
 
+
         for dataset in datasets:
 
-            cards.append(
-                ui.div(
+            source_url = dataset.get(
+                "source_url",
+                ""
+            )
 
-                    ui.tags.h4(
-                        dataset["title"]
+
+            card_elements = [
+
+                ui.tags.h4(
+                    dataset.get(
+                        "title",
+                        "Untitled dataset"
+                    )
+                ),
+
+                ui.tags.p(
+                    ui.tags.strong(
+                        "Data target: "
                     ),
 
-                    ui.tags.p(
-                        ui.tags.strong("Data target: "),
-                        dataset.get("data_target", "")
+                    dataset.get(
+                        "data_target",
+                        ""
+                    )
+                ),
+
+                ui.tags.p(
+                    ui.tags.strong(
+                        "Publisher: "
                     ),
 
-                    ui.tags.p(
-                        ui.tags.strong("Publisher: "),
-                        dataset.get("publisher", "")
+                    dataset.get(
+                        "publisher",
+                        "Unknown"
+                    )
+                ),
+
+                ui.tags.p(
+                    dataset.get(
+                        "description",
+                        ""
+                    )
+                ),
+
+                ui.tags.p(
+                    ui.tags.strong(
+                        "Geographic coverage: "
                     ),
 
-                    ui.tags.p(
-                        dataset.get("description", "")
+                    dataset.get(
+                        "geographic_coverage",
+                        "Unknown"
+                    )
+                ),
+
+                ui.tags.p(
+                    ui.tags.strong(
+                        "Time coverage: "
                     ),
 
-                    ui.tags.p(
-                        ui.tags.strong("Geographic coverage: "),
-                        dataset.get(
-                            "geographic_coverage",
-                            "Unknown"
-                        )
+                    dataset.get(
+                        "time_coverage",
+                        "Unknown"
+                    )
+                ),
+
+                ui.tags.p(
+                    ui.tags.strong(
+                        "Format: "
                     ),
 
-                    ui.tags.p(
-                        ui.tags.strong("Time coverage: "),
-                        dataset.get(
-                            "time_coverage",
-                            "Unknown"
-                        )
-                    ),
+                    dataset.get(
+                        "format",
+                        "Unknown"
+                    )
+                )
+            ]
 
-                    ui.tags.p(
-                        ui.tags.strong("Format: "),
-                        dataset.get(
-                            "format",
-                            "Unknown"
-                        )
-                    ),
+
+            if source_url:
+
+                card_elements.append(
 
                     ui.tags.a(
                         "Open original source",
-                        href=dataset["source_url"],
-                        target="_blank"
-                    ),
+                        href=source_url,
+                        target="_blank",
+                        class_="dataset-link"
+                    )
+                )
 
+
+            cards.append(
+
+                ui.div(
+                    *card_elements,
                     class_="data-card"
                 )
             )
+
 
         return ui.div(
 
@@ -702,10 +980,22 @@ def server(input, output, session):
                 "Public datasets found"
             ),
 
-            *cards,
+            ui.tags.p(
+                "These sources passed the current "
+                "automatic verification process. "
+                "They should still be reviewed before "
+                "the actual data are downloaded."
+            ),
 
-            class_="analysis-section"
-        )   
+            *cards
+        )
 
-init_database()
-app = App(app_ui, server)
+
+# ---------------------------------------------------------
+# APP
+# ---------------------------------------------------------
+
+app = App(
+    app_ui,
+    server
+)
