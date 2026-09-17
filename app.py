@@ -375,6 +375,5 @@ def server(input, output, session):
             message,
             class_="review-message"
         )
-
-
-    app = App(app_ui, server)
+    
+app = App(app_ui, server)
