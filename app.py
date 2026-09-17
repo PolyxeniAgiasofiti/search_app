@@ -1,5 +1,6 @@
 from shiny import App, ui, render, reactive
-from ai_service import analyze_topic , revise_topic_analysis
+from ai_service import analyze_topic, revise_topic_analysis
+
 
 app_ui = ui.page_fluid(
 
@@ -71,67 +72,67 @@ app_ui = ui.page_fluid(
         }
 
         .analysis-section {
-    margin-top: 35px;
-    text-align: left;
-}
+            margin-top: 35px;
+            text-align: left;
+            background-color: white;
+            border: 1px solid #dddddd;
+            border-radius: 14px;
+            padding: 25px;
+        }
 
-.analysis-section h3 {
-    font-size: 24px;
-    margin-bottom: 18px;
-}
+        .analysis-section h3 {
+            font-size: 24px;
+            margin-top: 0;
+            margin-bottom: 18px;
+        }
 
-.data-card {
-    background-color: white;
-    border: 1px solid #dddddd;
-    border-radius: 12px;
-    padding: 18px 20px;
-    margin-bottom: 12px;
-}
+        .data-card {
+            background-color: #fafafa;
+            border: 1px solid #dddddd;
+            border-radius: 12px;
+            padding: 18px 20px;
+            margin-bottom: 12px;
+        }
 
-.data-card h4 {
-    margin-top: 0;
-    margin-bottom: 8px;
-    font-size: 18px;
-}
+        .data-card h4 {
+            margin-top: 0;
+            margin-bottom: 8px;
+            font-size: 18px;
+        }
 
-.data-card p {
-    margin-bottom: 0;
-    color: #555;
-    line-height: 1.5;
-}
-.verification-section {
-    margin-top: 45px;
-    padding: 25px;
-    background-color: white;
-    border: 1px solid #dddddd;
-    border-radius: 14px;
-    text-align: left;
-}
+        .data-card p {
+            margin-bottom: 0;
+            color: #555;
+            line-height: 1.5;
+        }
 
-.verification-section h3 {
-    margin-top: 0;
-    margin-bottom: 12px;
-}
+        .confirm-button {
+            margin-top: 15px;
+            padding: 10px 28px;
+            border-radius: 8px;
+        }
 
-.verification-section textarea {
-    margin-top: 10px;
-    border-radius: 10px;
-}
+        .review-message {
+            margin-top: 20px;
+            padding: 14px 18px;
+            background-color: #f1f3f5;
+            border-radius: 10px;
+            font-weight: 500;
+        }
 
-.confirm-button {
-    margin-top: 15px;
-    padding: 10px 28px;
-    border-radius: 8px;
-}
+        .scope-warning {
+            margin-top: 35px;
+            padding: 25px;
+            background-color: white;
+            border: 1px solid #dddddd;
+            border-radius: 14px;
+            text-align: left;
+        }
 
-.review-message {
-    margin-top: 20px;
-    padding: 14px 18px;
-    background-color: #f1f3f5;
-    border-radius: 10px;
-    font-weight: 500;
-}
-
+        hr {
+            margin-top: 25px;
+            margin-bottom: 20px;
+        }
     """),
 
     ui.div(
@@ -176,7 +177,12 @@ app_ui = ui.page_fluid(
 def server(input, output, session):
 
     revised_result = reactive.Value(None)
-    review_message = reactive.Value(None)
+
+    definition_message = reactive.Value(None)
+    data_message = reactive.Value(None)
+
+    definition_approved = reactive.Value(False)
+    data_approved = reactive.Value(False)
 
 
     # -----------------------------------
@@ -197,9 +203,7 @@ def server(input, output, session):
         if not topic:
             return None
 
-        result = analyze_topic(topic)
-
-        return result
+        return analyze_topic(topic)
 
 
     # -----------------------------------
@@ -211,7 +215,12 @@ def server(input, output, session):
     def reset_review():
 
         revised_result.set(None)
-        review_message.set(None)
+
+        definition_message.set(None)
+        data_message.set(None)
+
+        definition_approved.set(False)
+        data_approved.set(False)
 
 
     # -----------------------------------
@@ -230,9 +239,26 @@ def server(input, output, session):
         if not result:
             return None
 
+
+        # Guardrail result
+        if result.get("in_scope") is False:
+
+            return ui.div(
+                ui.tags.h3("Topic outside the scope"),
+                ui.tags.p(
+                    result.get(
+                        "scope_message",
+                        "This topic is outside the scope of the Data Observatory."
+                    )
+                ),
+                class_="scope-warning"
+            )
+
+
+        # Create cards for data targets
         data_cards = []
 
-        for item in result["data_needed"]:
+        for item in result.get("data_needed", []):
 
             data_cards.append(
                 ui.div(
@@ -242,131 +268,248 @@ def server(input, output, session):
                 )
             )
 
+
         return ui.div(
 
-            # Definition
+            # ===================================
+            # DEFINITION REVIEW
+            # ===================================
+
             ui.div(
+
                 ui.tags.h3("Definition"),
-                ui.tags.p(result["definition"]),
-                class_="analysis-section"
-            ),
-
-            # Data requirements
-            ui.div(
-                ui.tags.h3("Data needed for the study"),
-                *data_cards,
-                class_="analysis-section"
-            ),
-
-            # User verification
-            ui.div(
-
-                ui.tags.h3("Review the analysis"),
 
                 ui.tags.p(
-                    "Do you accept the definition and the proposed data requirements?"
+                    result["definition"]
+                ),
+
+                ui.tags.hr(),
+
+                ui.tags.p(
+                    "Do you accept this definition?"
                 ),
 
                 ui.input_radio_buttons(
-                    "analysis_acceptance",
+                    "definition_acceptance",
                     label=None,
                     choices={
-                        "yes": "Yes, I accept them",
+                        "yes": "Yes, I accept this definition",
                         "no": "No, I would like to make changes"
                     }
                 ),
 
                 ui.input_text_area(
-                    "user_feedback",
+                    "definition_feedback",
                     label="Add your input if necessary",
                     placeholder=(
-                        "Add any corrections, comments, "
-                        "or additional data requirements here..."
+                        "Describe any corrections or changes "
+                        "you would like to make to the definition..."
+                    ),
+                    rows=3,
+                    width="100%"
+                ),
+
+                ui.input_action_button(
+                    "confirm_definition",
+                    "Confirm definition",
+                    class_="btn-primary confirm-button"
+                ),
+
+                ui.output_ui("definition_status"),
+
+                class_="analysis-section"
+            ),
+
+
+            # ===================================
+            # DATA TARGETS REVIEW
+            # ===================================
+
+            ui.div(
+
+                ui.tags.h3("Data targets"),
+
+                *data_cards,
+
+                ui.tags.hr(),
+
+                ui.tags.p(
+                    "Do you accept these proposed data targets?"
+                ),
+
+                ui.input_radio_buttons(
+                    "data_acceptance",
+                    label=None,
+                    choices={
+                        "yes": "Yes, I accept these data targets",
+                        "no": "No, I would like to make changes"
+                    }
+                ),
+
+                ui.input_text_area(
+                    "data_feedback",
+                    label="Add your input if necessary",
+                    placeholder=(
+                        "Add, remove, or modify data targets. "
+                        "For example: Add housing affordability "
+                        "and wealth distribution by age."
                     ),
                     rows=4,
                     width="100%"
                 ),
 
                 ui.input_action_button(
-                    "confirm_analysis",
-                    "Confirm",
+                    "confirm_data",
+                    "Confirm data targets",
                     class_="btn-primary confirm-button"
                 ),
 
-                ui.output_ui("review_status"),
+                ui.output_ui("data_status"),
 
-                class_="verification-section"
+                class_="analysis-section"
             )
         )
 
 
     # -----------------------------------
-    # HANDLE USER CONFIRMATION
+    # HANDLE DEFINITION CONFIRMATION
     # -----------------------------------
 
     @reactive.effect
-    @reactive.event(input.confirm_analysis)
-    def handle_confirmation():
+    @reactive.event(input.confirm_definition)
+    def handle_definition_confirmation():
 
-        choice = input.analysis_acceptance()
+        choice = input.definition_acceptance()
 
         if not choice:
-            review_message.set(
-                "Please select whether you accept the analysis."
+            definition_message.set(
+                "Please select whether you accept the definition."
             )
             return
 
-        # User accepts the analysis
+
         if choice == "yes":
 
-            review_message.set(
-                "Analysis confirmed."
+            definition_approved.set(True)
+
+            definition_message.set(
+                "Definition approved."
             )
 
             return
 
-        # User wants changes
-        feedback = input.user_feedback()
+
+        feedback = input.definition_feedback()
 
         if not feedback or not feedback.strip():
 
-            review_message.set(
+            definition_message.set(
                 "Please describe what you would like to change."
             )
 
             return
 
-        feedback = feedback.strip()
 
         current_result = revised_result.get()
 
         if current_result is None:
             current_result = search_request()
 
+
         topic = input.search_query().strip()
+
 
         new_result = revise_topic_analysis(
             topic,
             current_result,
-            feedback
+            feedback.strip(),
+            target="definition"
         )
+
 
         revised_result.set(new_result)
 
-        review_message.set(
-            "The analysis has been revised. Please review it again."
+        definition_approved.set(False)
+
+        definition_message.set(
+            "The definition has been revised. Please review it again."
         )
 
 
     # -----------------------------------
-    # DISPLAY REVIEW MESSAGE
+    # HANDLE DATA TARGET CONFIRMATION
+    # -----------------------------------
+
+    @reactive.effect
+    @reactive.event(input.confirm_data)
+    def handle_data_confirmation():
+
+        choice = input.data_acceptance()
+
+        if not choice:
+            data_message.set(
+                "Please select whether you accept the data targets."
+            )
+            return
+
+
+        if choice == "yes":
+
+            data_approved.set(True)
+
+            data_message.set(
+                "Data targets approved."
+            )
+
+            return
+
+
+        feedback = input.data_feedback()
+
+        if not feedback or not feedback.strip():
+
+            data_message.set(
+                "Please describe what you would like to add, remove, or change."
+            )
+
+            return
+
+
+        current_result = revised_result.get()
+
+        if current_result is None:
+            current_result = search_request()
+
+
+        topic = input.search_query().strip()
+
+
+        new_result = revise_topic_analysis(
+            topic,
+            current_result,
+            feedback.strip(),
+            target="data"
+        )
+
+
+        revised_result.set(new_result)
+
+        data_approved.set(False)
+
+        data_message.set(
+            "The data targets have been revised. Please review them again."
+        )
+
+
+    # -----------------------------------
+    # DISPLAY DEFINITION STATUS
     # -----------------------------------
 
     @output
     @render.ui
-    def review_status():
+    def definition_status():
 
-        message = review_message.get()
+        message = definition_message.get()
 
         if not message:
             return None
@@ -375,5 +518,25 @@ def server(input, output, session):
             message,
             class_="review-message"
         )
-    
+
+
+    # -----------------------------------
+    # DISPLAY DATA STATUS
+    # -----------------------------------
+
+    @output
+    @render.ui
+    def data_status():
+
+        message = data_message.get()
+
+        if not message:
+            return None
+
+        return ui.div(
+            message,
+            class_="review-message"
+        )
+
+
 app = App(app_ui, server)

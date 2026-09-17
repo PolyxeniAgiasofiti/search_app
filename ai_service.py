@@ -1,12 +1,29 @@
 import json
 
 from google import genai
-from prompts import (build_topic_analysis_prompt,
+from prompts import (
+    build_topic_analysis_prompt,
     build_revision_prompt
 )
 
 
 client = genai.Client()
+
+
+def clean_json_response(response_text):
+
+    response_text = response_text.strip()
+
+    if response_text.startswith("```json"):
+        response_text = response_text[7:]
+
+    elif response_text.startswith("```"):
+        response_text = response_text[3:]
+
+    if response_text.endswith("```"):
+        response_text = response_text[:-3]
+
+    return response_text.strip()
 
 
 def analyze_topic(topic):
@@ -18,28 +35,32 @@ def analyze_topic(topic):
         input=prompt
     )
 
-    response_text = interaction.output_text.strip()
+    response_text = clean_json_response(
+        interaction.output_text
+    )
 
-    # Remove Markdown code fences if Gemini adds them
-    if response_text.startswith("```json"):
-        response_text = response_text[7:]
+    result = json.loads(response_text)
 
-    if response_text.startswith("```"):
-        response_text = response_text[3:]
+    return result
 
-    if response_text.endswith("```"):
-        response_text = response_text[:-3]
 
-    response_text = response_text.strip()
+def revise_topic_analysis(
+    topic,
+    current_analysis,
+    user_feedback,
+    target
+):
 
-    return json.loads(response_text)
-
-def revise_topic_analysis(topic, current_analysis, user_feedback):
+    if target not in ["definition", "data"]:
+        raise ValueError(
+            "target must be 'definition' or 'data'"
+        )
 
     prompt = build_revision_prompt(
         topic,
         current_analysis,
-        user_feedback
+        user_feedback,
+        target
     )
 
     interaction = client.interactions.create(
@@ -47,17 +68,41 @@ def revise_topic_analysis(topic, current_analysis, user_feedback):
         input=prompt
     )
 
-    response_text = interaction.output_text.strip()
+    response_text = clean_json_response(
+        interaction.output_text
+    )
 
-    if response_text.startswith("```json"):
-        response_text = response_text[7:]
+    result = json.loads(response_text)
 
-    if response_text.startswith("```"):
-        response_text = response_text[3:]
 
-    if response_text.endswith("```"):
-        response_text = response_text[:-3]
+    # -----------------------------------
+    # ENFORCE SEPARATION IN PYTHON
+    # -----------------------------------
 
-    response_text = response_text.strip()
+    if target == "definition":
 
-    return json.loads(response_text)
+        # Gemini may revise ONLY the definition.
+        # Data targets are preserved exactly.
+        result["data_needed"] = current_analysis["data_needed"]
+
+
+    elif target == "data":
+
+        # Gemini may revise ONLY the data targets.
+        # Definition is preserved exactly.
+        result["definition"] = current_analysis["definition"]
+
+
+    # Preserve scope information
+    result["in_scope"] = current_analysis.get(
+        "in_scope",
+        True
+    )
+
+    result["scope_message"] = current_analysis.get(
+        "scope_message",
+        ""
+    )
+
+
+    return result
