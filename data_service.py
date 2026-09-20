@@ -219,6 +219,26 @@ of the following:
    - API
    - official data browser
 
+   A trusted publisher alone is not enough.
+
+   actual_data_access must be true ONLY when the Tavily
+   title/content reasonably indicates access to structured
+   data or a direct official dataset resource.
+
+   Mark actual_data_access false for:
+
+   - informational or explanatory articles
+   - general topic pages
+   - methodology-only pages
+   - news releases
+   - publication pages without accessible underlying data
+   - organisation homepages
+
+   For example, an official "Statistics Explained" article
+   should not be accepted unless the supplied result clearly
+   provides or directly links to a dataset, table, data browser,
+   API, catalogue entry, or download.
+
 3. It is genuinely relevant to the
    approved data target.
 
@@ -279,6 +299,13 @@ geographic_match
 
 Only return a candidate when ALL THREE are true.
 
+For actual_data_access, be strict:
+
+- true means the result provides or directly leads to
+  structured data.
+- false means the result mainly discusses statistics
+  without clear data access.
+
 Also classify source_type using exactly one of:
 
 government
@@ -295,6 +322,22 @@ unknown
 source_type describes the organisation or source,
 not the file format.
 
+Also classify data_access_type using exactly one of:
+
+dataset
+table
+api
+csv
+xlsx
+json
+database
+catalogue
+unknown
+
+data_access_type describes how the data can be accessed.
+Use unknown only when the Tavily evidence does not clearly
+show a structured data access path.
+
 
 Return ONLY valid JSON in this exact form:
 
@@ -310,6 +353,7 @@ Return ONLY valid JSON in this exact form:
             "time_coverage": "Coverage or Unknown",
             "format": "CSV, JSON, API, XLSX, table, catalogue, database, or unknown",
             "source_type": "statistical_authority",
+            "data_access_type": "table",
             "official_source": true,
             "actual_data_access": true,
             "geographic_match": true

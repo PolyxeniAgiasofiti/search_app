@@ -32,6 +32,19 @@ SOURCE_TYPES = {
 }
 
 
+DATA_ACCESS_TYPES = {
+    "dataset",
+    "table",
+    "api",
+    "csv",
+    "xlsx",
+    "json",
+    "database",
+    "catalogue",
+    "unknown"
+}
+
+
 # ---------------------------------------------------------
 # DOMAIN UTILITIES
 # ---------------------------------------------------------
@@ -127,6 +140,32 @@ def normalise_source_type(source_type):
     if source_type in SOURCE_TYPES:
 
         return source_type
+
+
+    return "unknown"
+
+
+def normalise_data_access_type(data_access_type):
+
+    if not data_access_type:
+
+        return "unknown"
+
+
+    data_access_type = str(
+        data_access_type
+    ).strip().lower().replace(
+        " ",
+        "_"
+    ).replace(
+        "-",
+        "_"
+    )
+
+
+    if data_access_type in DATA_ACCESS_TYPES:
+
+        return data_access_type
 
 
     return "unknown"
@@ -378,6 +417,30 @@ def validate_dataset_candidate(
         }
 
 
+    data_access_type = normalise_data_access_type(
+        dataset.get(
+            "data_access_type"
+        )
+    )
+
+
+    if data_access_type == "unknown":
+
+        return {
+            "accepted":
+                False,
+
+            "message":
+                "REJECTED UNKNOWN DATA ACCESS:",
+
+            "detail":
+                url,
+
+            "validation_status":
+                "invalid"
+        }
+
+
     if dataset.get(
         "geographic_match"
     ) is not True:
@@ -466,6 +529,8 @@ def validate_dataset_candidate(
             "source_type"
         )
     )
+
+    enriched_dataset["data_access_type"] = data_access_type
 
     enriched_dataset["validation_status"] = validation_status
 

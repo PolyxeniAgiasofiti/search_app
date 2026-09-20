@@ -11,6 +11,12 @@ DATABASE_URL = os.getenv(
 
 SCHEMA = "data_observatory"
 
+VALID_REVIEW_STATUSES = {
+    "pending_review",
+    "approved",
+    "rejected"
+}
+
 
 # ---------------------------------------------------------
 # CONNECTION
@@ -371,6 +377,8 @@ def save_dataset_candidates(
 
                 saved_dataset["id"] = dataset_id
 
+                saved_dataset["review_status"] = "pending_review"
+
 
                 saved_datasets.append(
                     saved_dataset
@@ -381,6 +389,66 @@ def save_dataset_candidates(
 
 
     return saved_datasets
+
+
+# ---------------------------------------------------------
+# UPDATE DATASET REVIEW STATUS
+# ---------------------------------------------------------
+
+def update_dataset_review_status(
+    dataset_id,
+    review_status
+):
+
+    if review_status not in VALID_REVIEW_STATUSES:
+
+        raise ValueError(
+            "review_status must be pending_review, approved, or rejected"
+        )
+
+
+    with get_connection() as conn:
+
+        with conn.cursor() as cur:
+
+            cur.execute(
+                f"""
+                UPDATE {SCHEMA}.datasets
+
+                SET review_status = %s
+
+                WHERE id = %s
+
+                RETURNING id;
+                """,
+
+                (
+                    review_status,
+                    dataset_id
+                )
+            )
+
+
+            updated = cur.fetchone()
+
+
+        conn.commit()
+
+
+    if updated is None:
+
+        raise ValueError(
+            "No dataset was found for the supplied dataset_id."
+        )
+
+
+    return {
+        "id":
+            dataset_id,
+
+        "review_status":
+            review_status
+    }
 
 
 # ---------------------------------------------------------

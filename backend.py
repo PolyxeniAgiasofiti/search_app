@@ -8,7 +8,8 @@ from ai_service import (
 from database import (
     init_database,
     save_research_run,
-    save_dataset_candidates
+    save_dataset_candidates,
+    update_dataset_review_status
 )
 
 from data_service import search_public_datasets
@@ -47,6 +48,7 @@ def server(input, output, session):
     research_run_save_error = reactive.Value(None)
 
     discovered_datasets = reactive.Value(None)
+    dataset_review_clicks = reactive.Value({})
 
     public_data_status_value = reactive.Value(None)
 
@@ -92,6 +94,7 @@ def server(input, output, session):
         research_run_save_error.set(None)
 
         discovered_datasets.set(None)
+        dataset_review_clicks.set({})
 
         public_data_status_value.set(None)
 
@@ -774,6 +777,10 @@ def server(input, output, session):
                 saved_datasets
             )
 
+            dataset_review_clicks.set(
+                {}
+            )
+
 
             public_data_status_value.set(
                 f"Search completed. "
@@ -822,6 +829,129 @@ def server(input, output, session):
 
 
     # -----------------------------------------------------
+    # DATASET REVIEW ACTIONS
+    # -----------------------------------------------------
+
+    def apply_dataset_review(
+        dataset_id,
+        review_status
+    ):
+
+        update_dataset_review_status(
+            dataset_id=dataset_id,
+            review_status=review_status
+        )
+
+
+        datasets = discovered_datasets.get()
+
+        if datasets is None:
+            return
+
+
+        updated_datasets = []
+
+        for dataset in datasets:
+
+            updated_dataset = dataset.copy()
+
+            if updated_dataset.get(
+                "id"
+            ) == dataset_id:
+
+                updated_dataset["review_status"] = review_status
+
+
+            updated_datasets.append(
+                updated_dataset
+            )
+
+
+        discovered_datasets.set(
+            updated_datasets
+        )
+
+        public_data_status_value.set(
+            "Source review status updated."
+        )
+
+
+    @reactive.effect
+    def handle_dataset_review_actions():
+
+        datasets = discovered_datasets.get()
+
+        if not datasets:
+            return
+
+
+        previous_clicks = dataset_review_clicks.get().copy()
+
+        next_clicks = previous_clicks.copy()
+
+
+        for dataset in datasets:
+
+            dataset_id = dataset.get(
+                "id"
+            )
+
+            if dataset_id is None:
+                continue
+
+
+            for action, review_status in [
+                (
+                    "approve",
+                    "approved"
+                ),
+                (
+                    "reject",
+                    "rejected"
+                )
+            ]:
+
+                input_id = f"{action}_source_{dataset_id}"
+
+                try:
+
+                    click_count = input[input_id]()
+
+                except Exception:
+
+                    click_count = 0
+
+
+                previous_count = previous_clicks.get(
+                    input_id,
+                    0
+                )
+
+                next_clicks[input_id] = click_count
+
+
+                if click_count > previous_count:
+
+                    apply_dataset_review(
+                        dataset_id=dataset_id,
+                        review_status=review_status
+                    )
+
+                    dataset_review_clicks.set(
+                        next_clicks
+                    )
+
+                    return
+
+
+        if next_clicks != previous_clicks:
+
+            dataset_review_clicks.set(
+                next_clicks
+            )
+
+
+    # -----------------------------------------------------
     # DISPLAY PUBLIC DATASET RESULTS
     # -----------------------------------------------------
 
@@ -852,6 +982,10 @@ def server(input, output, session):
             source_url = dataset.get(
                 "source_url",
                 ""
+            )
+
+            dataset_id = dataset.get(
+                "id"
             )
 
 
@@ -975,6 +1109,23 @@ def server(input, output, session):
                         "_",
                         " "
                     ).title()
+                ),
+
+                ui.tags.p(
+                    ui.tags.strong(
+                        "Review status: "
+                    ),
+
+                    (
+                        dataset.get(
+                            "review_status"
+                        )
+                        or
+                        "pending_review"
+                    ).replace(
+                        "_",
+                        " "
+                    ).title()
                 )
             ]
 
@@ -988,6 +1139,26 @@ def server(input, output, session):
                         href=source_url,
                         target="_blank",
                         class_="dataset-link"
+                    )
+                )
+
+            if dataset_id is not None:
+
+                card_elements.append(
+
+                    ui.div(
+
+                        ui.input_action_button(
+                            f"approve_source_{dataset_id}",
+                            "Approve source",
+                            class_="btn-success confirm-button"
+                        ),
+
+                        ui.input_action_button(
+                            f"reject_source_{dataset_id}",
+                            "Reject source",
+                            class_="btn-secondary confirm-button"
+                        )
                     )
                 )
 

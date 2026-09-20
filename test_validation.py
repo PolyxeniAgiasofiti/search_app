@@ -1,6 +1,7 @@
 import unittest
 from urllib.error import HTTPError
 
+from database import update_dataset_review_status
 from validation import (
     check_source_link,
     validate_dataset_candidate
@@ -48,7 +49,8 @@ def make_candidate(
     url="https://example.gov/data",
     official_source=True,
     actual_data_access=True,
-    geographic_match=True
+    geographic_match=True,
+    data_access_type="dataset"
 ):
 
     return {
@@ -79,6 +81,9 @@ def make_candidate(
         "source_type":
             "statistical_authority",
 
+        "data_access_type":
+            data_access_type,
+
         "official_source":
             official_source,
 
@@ -91,6 +96,31 @@ def make_candidate(
 
 
 class ValidationTest(unittest.TestCase):
+
+    def test_official_direct_dataset_can_pass(self):
+
+        candidate = make_candidate(
+            data_access_type="dataset"
+        )
+
+        result = validate_dataset_candidate(
+            candidate,
+            real_urls={
+                candidate["source_url"]
+            },
+            seen_urls=set(),
+            check_link=False
+        )
+
+        self.assertTrue(
+            result["accepted"]
+        )
+
+        self.assertEqual(
+            result["dataset"]["data_access_type"],
+            "dataset"
+        )
+
 
     def test_blocked_domain_is_invalid(self):
 
@@ -161,6 +191,48 @@ class ValidationTest(unittest.TestCase):
                 result["validation_status"],
                 "invalid"
             )
+
+
+    def test_informational_article_without_data_access_is_rejected(self):
+
+        candidate = make_candidate(
+            actual_data_access=False,
+            data_access_type="unknown"
+        )
+
+        result = validate_dataset_candidate(
+            candidate,
+            real_urls={
+                candidate["source_url"]
+            },
+            seen_urls=set(),
+            check_link=False
+        )
+
+        self.assertFalse(
+            result["accepted"]
+        )
+
+
+    def test_unknown_data_access_type_is_rejected(self):
+
+        candidate = make_candidate(
+            actual_data_access=True,
+            data_access_type="unknown"
+        )
+
+        result = validate_dataset_candidate(
+            candidate,
+            real_urls={
+                candidate["source_url"]
+            },
+            seen_urls=set(),
+            check_link=False
+        )
+
+        self.assertFalse(
+            result["accepted"]
+        )
 
 
     def test_duplicate_url_is_rejected(self):
@@ -264,6 +336,92 @@ class ValidationTest(unittest.TestCase):
             )["link_status"],
             "error"
         )
+
+
+    def test_broken_link_makes_candidate_invalid(self):
+
+        def missing_urlopen(
+            request,
+            timeout
+        ):
+
+            raise HTTPError(
+                request.full_url,
+                404,
+                "Not Found",
+                hdrs=None,
+                fp=None
+            )
+
+
+        candidate = make_candidate()
+
+        result = validate_dataset_candidate(
+            candidate,
+            real_urls={
+                candidate["source_url"]
+            },
+            seen_urls=set(),
+            urlopen_func=missing_urlopen
+        )
+
+        self.assertFalse(
+            result["accepted"]
+        )
+
+        self.assertEqual(
+            result["validation_status"],
+            "invalid"
+        )
+
+
+    def test_restricted_link_needs_review(self):
+
+        def forbidden_urlopen(
+            request,
+            timeout
+        ):
+
+            raise HTTPError(
+                request.full_url,
+                403,
+                "Forbidden",
+                hdrs=None,
+                fp=None
+            )
+
+
+        candidate = make_candidate()
+
+        result = validate_dataset_candidate(
+            candidate,
+            real_urls={
+                candidate["source_url"]
+            },
+            seen_urls=set(),
+            urlopen_func=forbidden_urlopen
+        )
+
+        self.assertTrue(
+            result["accepted"]
+        )
+
+        self.assertEqual(
+            result["validation_status"],
+            "needs_review"
+        )
+
+
+    def test_invalid_review_status_is_rejected(self):
+
+        with self.assertRaises(
+            ValueError
+        ):
+
+            update_dataset_review_status(
+                dataset_id=1,
+                review_status="not_a_real_status"
+            )
 
 
 if __name__ == "__main__":
