@@ -43,6 +43,25 @@ class FakeClient:
 
 class AiServiceRevisionTest(unittest.TestCase):
 
+    def assert_result_structure(self, result):
+
+        for key in [
+            "in_scope",
+            "scope_message",
+            "definition",
+            "data_needed"
+        ]:
+
+            self.assertIn(
+                key,
+                result
+            )
+
+        self.assertIsInstance(
+            result["data_needed"],
+            list
+        )
+
     def test_definition_revision_can_update_data_targets(self):
 
         original_client = ai_service.client
@@ -94,6 +113,10 @@ class AiServiceRevisionTest(unittest.TestCase):
             "Age distribution of elected officials"
         )
 
+        self.assert_result_structure(
+            result
+        )
+
     def test_data_revision_preserves_definition(self):
 
         original_client = ai_service.client
@@ -135,6 +158,10 @@ class AiServiceRevisionTest(unittest.TestCase):
         self.assertNotEqual(
             result["data_needed"],
             current_analysis["data_needed"]
+        )
+
+        self.assert_result_structure(
+            result
         )
 
 

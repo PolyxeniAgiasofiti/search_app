@@ -432,14 +432,13 @@ def server(input, output, session):
         )
 
         definition_message.set(
-            "The definition has been revised. "
-            "Please review it again."
+            "The definition has been revised. The data "
+            "targets have also been reconsidered."
         )
 
         data_message.set(
-            "The data targets may have changed because "
-            "the definition was revised. Please review "
-            "them again."
+            "The data targets must be reviewed again "
+            "because the definition was revised."
         )
 
 

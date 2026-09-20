@@ -275,9 +275,25 @@ The revised Definition must remain:
 
 Do not add unrelated concepts.
 
-Because the current application review flow treats the Definition and
-Data Targets as connected, keep the data_needed list coherent with the
-revised Definition while preserving the required JSON structure.
+Definition and Data Targets are connected parts of the same analysis.
+
+After revising the Definition, reconsider the existing Data Targets
+against the revised Definition.
+
+For the data_needed list:
+
+1. Preserve existing Data Targets that are still relevant.
+2. Update Data Targets whose meaning should change.
+3. Add missing Data Targets required by the revised Definition.
+4. Remove Data Targets only when the revised Definition makes them
+   irrelevant.
+5. For a small wording-only Definition correction, you may keep the same
+   Data Targets.
+6. For a meaningful Definition change, allow the Data Targets to change.
+
+Do not blindly regenerate unrelated Data Targets.
+The final data_needed list must remain logically connected to the
+revised Definition.
 """
 
 
