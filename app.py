@@ -18,7 +18,15 @@ from data_service import search_public_datasets
 # DATABASE INITIALISATION
 # ---------------------------------------------------------
 
-init_database()
+database_ready = True
+database_error_message = ""
+
+try:
+    init_database()
+
+except Exception as error:
+    database_ready = False
+    database_error_message = str(error)
 
 
 # ---------------------------------------------------------
@@ -145,6 +153,7 @@ def server(input, output, session):
     data_approved = reactive.Value(False)
 
     research_run_id = reactive.Value(None)
+    research_run_save_error = reactive.Value(None)
 
     discovered_datasets = reactive.Value(None)
 
@@ -189,6 +198,7 @@ def server(input, output, session):
         data_approved.set(False)
 
         research_run_id.set(None)
+        research_run_save_error.set(None)
 
         discovered_datasets.set(None)
 
@@ -403,6 +413,19 @@ def server(input, output, session):
         if research_run_id.get() is not None:
             return
 
+        research_run_save_error.set(None)
+
+        if not database_ready:
+
+            research_run_save_error.set(
+                "Database is not configured, so the approved "
+                "research run cannot be saved yet. Set "
+                "DATABASE_URL and restart the app. Details: "
+                + database_error_message
+            )
+
+            return
+
 
         result = revised_result.get()
 
@@ -416,11 +439,24 @@ def server(input, output, session):
         topic = input.search_query().strip()
 
 
-        run_id = save_research_run(
-            topic=topic,
-            definition=result["definition"],
-            data_targets=result["data_needed"]
-        )
+        try:
+
+            run_id = save_research_run(
+                topic=topic,
+                definition=result["definition"],
+                data_targets=result["data_needed"]
+            )
+
+        except Exception as error:
+
+            research_run_save_error.set(
+                "The approved research run could not be saved. "
+                "Check the PostgreSQL connection and Render logs. "
+                "Details: "
+                + str(error)
+            )
+
+            return
 
 
         research_run_id.set(
@@ -500,9 +536,19 @@ def server(input, output, session):
             False
         )
 
+        data_approved.set(
+            False
+        )
+
         definition_message.set(
             "The definition has been revised. "
             "Please review it again."
+        )
+
+        data_message.set(
+            "The data targets may have changed because "
+            "the definition was revised. Please review "
+            "them again."
         )
 
 
@@ -638,9 +684,49 @@ def server(input, output, session):
             return None
 
 
+        if not database_ready:
+
+            return ui.div(
+
+                ui.tags.h3(
+                    "Database configuration needed"
+                ),
+
+                ui.tags.p(
+                    "The definition and data targets are approved, "
+                    "but the research run cannot be saved until "
+                    "DATABASE_URL is configured."
+                ),
+
+                ui.tags.p(
+                    database_error_message
+                ),
+
+                class_="analysis-section"
+            )
+
+
         run_id = research_run_id.get()
 
         if run_id is None:
+
+            save_error = research_run_save_error.get()
+
+            if save_error:
+
+                return ui.div(
+
+                    ui.tags.h3(
+                        "Research run was not saved"
+                    ),
+
+                    ui.tags.p(
+                        save_error
+                    ),
+
+                    class_="analysis-section"
+                )
+
 
             return ui.div(
                 "Saving approved research request...",

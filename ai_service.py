@@ -76,17 +76,10 @@ def revise_topic_analysis(
 
 
     # -----------------------------------
-    # ENFORCE SEPARATION IN PYTHON
+    # ENFORCE REVIEW BOUNDARIES IN PYTHON
     # -----------------------------------
 
-    if target == "definition":
-
-        # Gemini may revise ONLY the definition.
-        # Data targets are preserved exactly.
-        result["data_needed"] = current_analysis["data_needed"]
-
-
-    elif target == "data":
+    if target == "data":
 
         # Gemini may revise ONLY the data targets.
         # Definition is preserved exactly.

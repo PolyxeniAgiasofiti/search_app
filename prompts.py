@@ -152,9 +152,10 @@ def build_revision_prompt(
     if target == "definition":
 
         revision_instruction = """
-You are revising ONLY the definition.
+You are revising the definition.
 
-The data_needed list MUST NOT be modified.
+Because the definition and data targets are connected,
+you must also reconsider the data_needed list.
 
 Apply the user's requested corrections to the definition.
 
@@ -167,7 +168,11 @@ The revised definition must remain:
 
 Do not add unrelated concepts.
 
-Return the existing data_needed list unchanged.
+Update data_needed when the revised definition changes
+what data is needed for the study.
+
+If the existing data_needed list still fits the revised
+definition, you may keep it unchanged.
 """
 
 
