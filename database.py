@@ -163,6 +163,48 @@ def init_database():
                 """
             )
 
+            cur.execute(
+                f"""
+                ALTER TABLE {SCHEMA}.datasets
+                ADD COLUMN IF NOT EXISTS retrieval_status TEXT;
+                """
+            )
+
+            cur.execute(
+                f"""
+                ALTER TABLE {SCHEMA}.datasets
+                ADD COLUMN IF NOT EXISTS data_access_url TEXT;
+                """
+            )
+
+            cur.execute(
+                f"""
+                ALTER TABLE {SCHEMA}.datasets
+                ADD COLUMN IF NOT EXISTS retrieval_message TEXT;
+                """
+            )
+
+            cur.execute(
+                f"""
+                ALTER TABLE {SCHEMA}.datasets
+                ADD COLUMN IF NOT EXISTS retrieved_row_count BIGINT;
+                """
+            )
+
+            cur.execute(
+                f"""
+                ALTER TABLE {SCHEMA}.datasets
+                ADD COLUMN IF NOT EXISTS stored_row_count BIGINT;
+                """
+            )
+
+            cur.execute(
+                f"""
+                ALTER TABLE {SCHEMA}.datasets
+                ADD COLUMN IF NOT EXISTS retrieved_at TIMESTAMPTZ;
+                """
+            )
+
 
             # ---------------------------------------------
             # ACTUAL DATA ROWS
@@ -287,6 +329,7 @@ def save_dataset_candidates(
                         link_status,
                         http_status,
                         final_url,
+                        retrieval_status,
                         last_checked_at,
                         review_status
                     )
@@ -307,6 +350,7 @@ def save_dataset_candidates(
                         %s,
                         %s,
                         %s,
+                        'not_started',
                         NOW(),
                         'pending_review'
                     )
@@ -378,6 +422,8 @@ def save_dataset_candidates(
                 saved_dataset["id"] = dataset_id
 
                 saved_dataset["review_status"] = "pending_review"
+
+                saved_dataset["retrieval_status"] = "not_started"
 
 
                 saved_datasets.append(
@@ -452,6 +498,256 @@ def update_dataset_review_status(
 
 
 # ---------------------------------------------------------
+# UPDATE DATASET RETRIEVAL METADATA
+# ---------------------------------------------------------
+
+def update_dataset_retrieval(
+    dataset_id,
+    retrieval_status,
+    data_access_url=None,
+    retrieval_message=None,
+    retrieved_row_count=None,
+    stored_row_count=None
+):
+
+    valid_statuses = {
+        "not_started",
+        "retrieved",
+        "unsupported",
+        "failed",
+        "too_large"
+    }
+
+
+    if retrieval_status not in valid_statuses:
+
+        raise ValueError(
+            "Invalid retrieval_status."
+        )
+
+
+    with get_connection() as conn:
+
+        with conn.cursor() as cur:
+
+            if retrieval_status == "retrieved":
+
+                retrieved_at_sql = "NOW()"
+
+            else:
+
+                retrieved_at_sql = "retrieved_at"
+
+
+            cur.execute(
+                f"""
+                UPDATE {SCHEMA}.datasets
+
+                SET
+                    retrieval_status = %s,
+                    data_access_url = %s,
+                    retrieval_message = %s,
+                    retrieved_row_count = %s,
+                    stored_row_count = %s,
+                    retrieved_at = {retrieved_at_sql}
+
+                WHERE id = %s
+
+                RETURNING id;
+                """,
+
+                (
+                    retrieval_status,
+                    data_access_url,
+                    retrieval_message,
+                    retrieved_row_count,
+                    stored_row_count,
+                    dataset_id
+                )
+            )
+
+            updated = cur.fetchone()
+
+
+        conn.commit()
+
+
+    if updated is None:
+
+        raise ValueError(
+            "No dataset was found for the supplied dataset_id."
+        )
+
+
+def clear_dataset_rows(
+    dataset_id
+):
+
+    with get_connection() as conn:
+
+        with conn.cursor() as cur:
+
+            cur.execute(
+                f"""
+                DELETE FROM {SCHEMA}.dataset_rows
+
+                WHERE dataset_id = %s;
+                """,
+
+                (
+                    dataset_id,
+                )
+            )
+
+
+        conn.commit()
+
+
+def save_dataset_rows(
+    dataset_id,
+    rows
+):
+
+    with get_connection() as conn:
+
+        with conn.cursor() as cur:
+
+            if rows:
+
+                cur.executemany(
+                    f"""
+                    INSERT INTO {SCHEMA}.dataset_rows
+                    (
+                        dataset_id,
+                        row_data
+                    )
+
+                    VALUES
+                    (
+                        %s,
+                        %s
+                    );
+                    """,
+
+                    [
+                        (
+                            dataset_id,
+                            Jsonb(
+                                row
+                            )
+                        )
+                        for row
+                        in rows
+                    ]
+                )
+
+
+        conn.commit()
+
+
+    return len(
+        rows
+    )
+
+
+def replace_dataset_rows(
+    dataset_id,
+    rows
+):
+
+    with get_connection() as conn:
+
+        with conn.cursor() as cur:
+
+            cur.execute(
+                f"""
+                DELETE FROM {SCHEMA}.dataset_rows
+
+                WHERE dataset_id = %s;
+                """,
+
+                (
+                    dataset_id,
+                )
+            )
+
+            if rows:
+
+                cur.executemany(
+                    f"""
+                    INSERT INTO {SCHEMA}.dataset_rows
+                    (
+                        dataset_id,
+                        row_data
+                    )
+
+                    VALUES
+                    (
+                        %s,
+                        %s
+                    );
+                    """,
+
+                    [
+                        (
+                            dataset_id,
+                            Jsonb(
+                                row
+                            )
+                        )
+                        for row
+                        in rows
+                    ]
+                )
+
+
+        conn.commit()
+
+
+    return len(
+        rows
+    )
+
+
+def get_dataset_rows(
+    dataset_id,
+    limit=20
+):
+
+    with get_connection() as conn:
+
+        with conn.cursor() as cur:
+
+            cur.execute(
+                f"""
+                SELECT row_data
+
+                FROM {SCHEMA}.dataset_rows
+
+                WHERE dataset_id = %s
+
+                ORDER BY id
+
+                LIMIT %s;
+                """,
+
+                (
+                    dataset_id,
+                    limit
+                )
+            )
+
+            rows = cur.fetchall()
+
+
+    return [
+        row[0]
+        for row
+        in rows
+    ]
+
+
+# ---------------------------------------------------------
 # READ DATASET CANDIDATES
 # ---------------------------------------------------------
 
@@ -481,6 +777,12 @@ def get_datasets_for_run(
                     http_status,
                     final_url,
                     last_checked_at,
+                    retrieval_status,
+                    data_access_url,
+                    retrieval_message,
+                    retrieved_row_count,
+                    stored_row_count,
+                    retrieved_at,
                     review_status
 
                 FROM {SCHEMA}.datasets
@@ -547,8 +849,26 @@ def get_datasets_for_run(
             "last_checked_at":
                 row[14],
 
+            "retrieval_status":
+                row[15],
+
+            "data_access_url":
+                row[16],
+
+            "retrieval_message":
+                row[17],
+
+            "retrieved_row_count":
+                row[18],
+
+            "stored_row_count":
+                row[19],
+
+            "retrieved_at":
+                row[20],
+
             "review_status":
-                row[15]
+                row[21]
         }
 
         for row

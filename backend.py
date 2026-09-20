@@ -9,10 +9,14 @@ from database import (
     init_database,
     save_research_run,
     save_dataset_candidates,
-    update_dataset_review_status
+    update_dataset_review_status,
+    update_dataset_retrieval,
+    replace_dataset_rows,
+    get_dataset_rows
 )
 
 from data_service import search_public_datasets
+from ingestion_service import retrieve_dataset
 
 
 # ---------------------------------------------------------
@@ -49,6 +53,8 @@ def server(input, output, session):
 
     discovered_datasets = reactive.Value(None)
     dataset_review_clicks = reactive.Value({})
+    dataset_retrieval_clicks = reactive.Value({})
+    dataset_preview_rows = reactive.Value({})
 
     public_data_status_value = reactive.Value(None)
 
@@ -95,6 +101,8 @@ def server(input, output, session):
 
         discovered_datasets.set(None)
         dataset_review_clicks.set({})
+        dataset_retrieval_clicks.set({})
+        dataset_preview_rows.set({})
 
         public_data_status_value.set(None)
 
@@ -781,6 +789,14 @@ def server(input, output, session):
                 {}
             )
 
+            dataset_retrieval_clicks.set(
+                {}
+            )
+
+            dataset_preview_rows.set(
+                {}
+            )
+
 
             public_data_status_value.set(
                 f"Search completed. "
@@ -952,6 +968,291 @@ def server(input, output, session):
 
 
     # -----------------------------------------------------
+    # DATASET RETRIEVAL ACTIONS
+    # -----------------------------------------------------
+
+    def update_dataset_in_state(
+        dataset_id,
+        updates
+    ):
+
+        datasets = discovered_datasets.get()
+
+        if datasets is None:
+            return
+
+
+        updated_datasets = []
+
+        for dataset in datasets:
+
+            updated_dataset = dataset.copy()
+
+            if updated_dataset.get(
+                "id"
+            ) == dataset_id:
+
+                updated_dataset.update(
+                    updates
+                )
+
+
+            updated_datasets.append(
+                updated_dataset
+            )
+
+
+        discovered_datasets.set(
+            updated_datasets
+        )
+
+
+    def apply_dataset_retrieval(
+        dataset
+    ):
+
+        dataset_id = dataset.get(
+            "id"
+        )
+
+        if dataset_id is None:
+            return
+
+
+        if dataset.get(
+            "review_status"
+        ) != "approved":
+
+            public_data_status_value.set(
+                "Only approved sources can be retrieved."
+            )
+
+            return
+
+
+        update_dataset_in_state(
+            dataset_id,
+            {
+                "retrieval_status":
+                    "not_started",
+
+                "retrieval_message":
+                    "Retrieving data..."
+            }
+        )
+
+        public_data_status_value.set(
+            "Retrieving data..."
+        )
+
+
+        result = retrieve_dataset(
+            dataset.get(
+                "source_url",
+                ""
+            )
+        )
+
+
+        if result.get(
+            "retrieval_status"
+        ) == "retrieved":
+
+            rows = result.get(
+                "rows",
+                []
+            )
+
+            stored_count = replace_dataset_rows(
+                dataset_id,
+                rows
+            )
+
+            update_dataset_retrieval(
+                dataset_id=dataset_id,
+                retrieval_status="retrieved",
+                data_access_url=result.get(
+                    "data_access_url"
+                ),
+                retrieval_message=result.get(
+                    "message"
+                ),
+                retrieved_row_count=result.get(
+                    "retrieved_row_count"
+                ),
+                stored_row_count=stored_count
+            )
+
+            preview_rows = get_dataset_rows(
+                dataset_id,
+                limit=20
+            )
+
+            previews = dataset_preview_rows.get().copy()
+
+            previews[dataset_id] = preview_rows
+
+            dataset_preview_rows.set(
+                previews
+            )
+
+            update_dataset_in_state(
+                dataset_id,
+                {
+                    "retrieval_status":
+                        "retrieved",
+
+                    "data_access_url":
+                        result.get(
+                            "data_access_url"
+                        ),
+
+                    "retrieval_message":
+                        result.get(
+                            "message"
+                        ),
+
+                    "retrieved_row_count":
+                        result.get(
+                            "retrieved_row_count"
+                        ),
+
+                    "stored_row_count":
+                        stored_count
+                }
+            )
+
+            public_data_status_value.set(
+                "Data retrieval completed."
+            )
+
+            return
+
+
+        update_dataset_retrieval(
+            dataset_id=dataset_id,
+            retrieval_status=result.get(
+                "retrieval_status",
+                "failed"
+            ),
+            data_access_url=result.get(
+                "data_access_url"
+            ),
+            retrieval_message=result.get(
+                "message"
+            ),
+            retrieved_row_count=result.get(
+                "retrieved_row_count"
+            ),
+            stored_row_count=result.get(
+                "stored_row_count"
+            )
+        )
+
+        update_dataset_in_state(
+            dataset_id,
+            {
+                "retrieval_status":
+                    result.get(
+                        "retrieval_status",
+                        "failed"
+                    ),
+
+                "data_access_url":
+                    result.get(
+                        "data_access_url"
+                    ),
+
+                "retrieval_message":
+                    result.get(
+                        "message"
+                    ),
+
+                "retrieved_row_count":
+                    result.get(
+                        "retrieved_row_count"
+                    ),
+
+                "stored_row_count":
+                    result.get(
+                        "stored_row_count"
+                    )
+            }
+        )
+
+        public_data_status_value.set(
+            "Data retrieval did not complete: "
+            + result.get(
+                "message",
+                "Unsupported or failed source."
+            )
+        )
+
+
+    @reactive.effect
+    def handle_dataset_retrieval_actions():
+
+        datasets = discovered_datasets.get()
+
+        if not datasets:
+            return
+
+
+        previous_clicks = dataset_retrieval_clicks.get().copy()
+
+        next_clicks = previous_clicks.copy()
+
+
+        for dataset in datasets:
+
+            dataset_id = dataset.get(
+                "id"
+            )
+
+            if dataset_id is None:
+                continue
+
+
+            input_id = f"retrieve_data_{dataset_id}"
+
+            try:
+
+                click_count = input[input_id]()
+
+            except Exception:
+
+                click_count = 0
+
+
+            previous_count = previous_clicks.get(
+                input_id,
+                0
+            )
+
+            next_clicks[input_id] = click_count
+
+
+            if click_count > previous_count:
+
+                dataset_retrieval_clicks.set(
+                    next_clicks
+                )
+
+                apply_dataset_retrieval(
+                    dataset
+                )
+
+                return
+
+
+        if next_clicks != previous_clicks:
+
+            dataset_retrieval_clicks.set(
+                next_clicks
+            )
+
+
+    # -----------------------------------------------------
     # DISPLAY PUBLIC DATASET RESULTS
     # -----------------------------------------------------
 
@@ -960,6 +1261,7 @@ def server(input, output, session):
     def public_dataset_results():
 
         datasets = discovered_datasets.get()
+        preview_rows_by_dataset = dataset_preview_rows.get()
 
 
         if datasets is None:
@@ -986,6 +1288,14 @@ def server(input, output, session):
 
             dataset_id = dataset.get(
                 "id"
+            )
+
+            retrieval_status = (
+                dataset.get(
+                    "retrieval_status"
+                )
+                or
+                "not_started"
             )
 
 
@@ -1126,8 +1436,83 @@ def server(input, output, session):
                         "_",
                         " "
                     ).title()
+                ),
+
+                ui.tags.p(
+                    ui.tags.strong(
+                        "Retrieval: "
+                    ),
+
+                    retrieval_status.replace(
+                        "_",
+                        " "
+                    ).title()
                 )
             ]
+
+            if dataset.get(
+                "data_access_url"
+            ):
+
+                card_elements.append(
+                    ui.tags.p(
+                        ui.tags.strong(
+                            "Data access URL: "
+                        ),
+
+                        dataset.get(
+                            "data_access_url"
+                        )
+                    )
+                )
+
+            if dataset.get(
+                "retrieved_row_count"
+            ) is not None:
+
+                card_elements.append(
+                    ui.tags.p(
+                        ui.tags.strong(
+                            "Retrieved rows: "
+                        ),
+
+                        str(
+                            dataset.get(
+                                "retrieved_row_count"
+                            )
+                        )
+                    )
+                )
+
+            if dataset.get(
+                "stored_row_count"
+            ) is not None:
+
+                card_elements.append(
+                    ui.tags.p(
+                        ui.tags.strong(
+                            "Stored rows: "
+                        ),
+
+                        str(
+                            dataset.get(
+                                "stored_row_count"
+                            )
+                        )
+                    )
+                )
+
+            if dataset.get(
+                "retrieval_message"
+            ):
+
+                card_elements.append(
+                    ui.tags.p(
+                        dataset.get(
+                            "retrieval_message"
+                        )
+                    )
+                )
 
 
             if source_url:
@@ -1139,6 +1524,23 @@ def server(input, output, session):
                         href=source_url,
                         target="_blank",
                         class_="dataset-link"
+                    )
+                )
+
+            if (
+                dataset.get(
+                    "review_status"
+                ) == "approved"
+                and
+                dataset_id is not None
+            ):
+
+                card_elements.append(
+
+                    ui.input_action_button(
+                        f"retrieve_data_{dataset_id}",
+                        "Retrieve data",
+                        class_="btn-primary confirm-button"
                     )
                 )
 
@@ -1158,6 +1560,87 @@ def server(input, output, session):
                             f"reject_source_{dataset_id}",
                             "Reject source",
                             class_="btn-secondary confirm-button"
+                        )
+                    )
+                )
+
+            preview_rows = preview_rows_by_dataset.get(
+                dataset_id,
+                []
+            )
+
+            if preview_rows:
+
+                columns = []
+
+                for row in preview_rows:
+
+                    for column in row.keys():
+
+                        if column not in columns:
+
+                            columns.append(
+                                column
+                            )
+
+
+                visible_columns = columns[:12]
+
+                table_rows = [
+                    ui.tags.tr(
+                        *[
+                            ui.tags.th(
+                                column
+                            )
+                            for column
+                            in visible_columns
+                        ]
+                    )
+                ]
+
+                for row in preview_rows[:20]:
+
+                    table_rows.append(
+                        ui.tags.tr(
+                            *[
+                                ui.tags.td(
+                                    "" if row.get(
+                                        column
+                                    ) is None else str(
+                                        row.get(
+                                            column
+                                        )
+                                    )
+                                )
+                                for column
+                                in visible_columns
+                            ]
+                        )
+                    )
+
+
+                card_elements.append(
+                    ui.div(
+                        ui.tags.h5(
+                            "Preview"
+                        ),
+
+                        ui.tags.table(
+                            *table_rows,
+                            class_="table table-sm"
+                        ),
+
+                        (
+                            ui.tags.p(
+                                "Preview shows the first 12 columns only."
+                            )
+                            if len(
+                                columns
+                            ) > len(
+                                visible_columns
+                            )
+                            else
+                            None
                         )
                     )
                 )
