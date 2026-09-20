@@ -115,6 +115,48 @@ def init_database():
                 """
             )
 
+            cur.execute(
+                f"""
+                ALTER TABLE {SCHEMA}.datasets
+                ADD COLUMN IF NOT EXISTS source_type TEXT;
+                """
+            )
+
+            cur.execute(
+                f"""
+                ALTER TABLE {SCHEMA}.datasets
+                ADD COLUMN IF NOT EXISTS validation_status TEXT;
+                """
+            )
+
+            cur.execute(
+                f"""
+                ALTER TABLE {SCHEMA}.datasets
+                ADD COLUMN IF NOT EXISTS link_status TEXT;
+                """
+            )
+
+            cur.execute(
+                f"""
+                ALTER TABLE {SCHEMA}.datasets
+                ADD COLUMN IF NOT EXISTS http_status INTEGER;
+                """
+            )
+
+            cur.execute(
+                f"""
+                ALTER TABLE {SCHEMA}.datasets
+                ADD COLUMN IF NOT EXISTS final_url TEXT;
+                """
+            )
+
+            cur.execute(
+                f"""
+                ALTER TABLE {SCHEMA}.datasets
+                ADD COLUMN IF NOT EXISTS last_checked_at TIMESTAMPTZ;
+                """
+            )
+
 
             # ---------------------------------------------
             # ACTUAL DATA ROWS
@@ -234,6 +276,12 @@ def save_dataset_candidates(
                         geographic_coverage,
                         time_coverage,
                         format,
+                        source_type,
+                        validation_status,
+                        link_status,
+                        http_status,
+                        final_url,
+                        last_checked_at,
                         review_status
                     )
 
@@ -248,6 +296,16 @@ def save_dataset_candidates(
                         %s,
                         %s,
                         %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        CASE
+                            WHEN %s IS NOT NULL
+                            THEN NOW()
+                            ELSE NULL
+                        END,
                         'pending_review'
                     )
 
@@ -285,6 +343,30 @@ def save_dataset_candidates(
 
                         dataset.get(
                             "format"
+                        ),
+
+                        dataset.get(
+                            "source_type"
+                        ),
+
+                        dataset.get(
+                            "validation_status"
+                        ),
+
+                        dataset.get(
+                            "link_status"
+                        ),
+
+                        dataset.get(
+                            "http_status"
+                        ),
+
+                        dataset.get(
+                            "final_url"
+                        ),
+
+                        dataset.get(
+                            "link_status"
                         )
                     )
                 )
@@ -333,6 +415,12 @@ def get_datasets_for_run(
                     geographic_coverage,
                     time_coverage,
                     format,
+                    source_type,
+                    validation_status,
+                    link_status,
+                    http_status,
+                    final_url,
+                    last_checked_at,
                     review_status
 
                 FROM {SCHEMA}.datasets
@@ -381,8 +469,26 @@ def get_datasets_for_run(
             "format":
                 row[8],
 
+            "source_type":
+                row[9],
+
+            "validation_status":
+                row[10],
+
+            "link_status":
+                row[11],
+
+            "http_status":
+                row[12],
+
+            "final_url":
+                row[13],
+
+            "last_checked_at":
+                row[14],
+
             "review_status":
-                row[9]
+                row[15]
         }
 
         for row

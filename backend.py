@@ -924,6 +924,57 @@ def server(input, output, session):
                         "format",
                         "Unknown"
                     )
+                ),
+
+                ui.tags.p(
+                    ui.tags.strong(
+                        "Source type: "
+                    ),
+
+                    (
+                        dataset.get(
+                            "source_type"
+                        )
+                        or
+                        "unknown"
+                    ).replace(
+                        "_",
+                        " "
+                    ).title()
+                ),
+
+                ui.tags.p(
+                    ui.tags.strong(
+                        "Validation: "
+                    ),
+
+                    (
+                        dataset.get(
+                            "validation_status"
+                        )
+                        or
+                        "needs_review"
+                    ).replace(
+                        "_",
+                        " "
+                    ).title()
+                ),
+
+                ui.tags.p(
+                    ui.tags.strong(
+                        "Link: "
+                    ),
+
+                    (
+                        dataset.get(
+                            "link_status"
+                        )
+                        or
+                        "unknown"
+                    ).replace(
+                        "_",
+                        " "
+                    ).title()
                 )
             ]
 

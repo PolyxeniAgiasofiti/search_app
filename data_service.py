@@ -279,6 +279,22 @@ geographic_match
 
 Only return a candidate when ALL THREE are true.
 
+Also classify source_type using exactly one of:
+
+government
+statistical_authority
+intergovernmental
+parliamentary
+central_bank
+open_data_portal
+public_research
+independent_research
+secondary_portal
+unknown
+
+source_type describes the organisation or source,
+not the file format.
+
 
 Return ONLY valid JSON in this exact form:
 
@@ -293,6 +309,7 @@ Return ONLY valid JSON in this exact form:
             "geographic_coverage": "Coverage or Unknown",
             "time_coverage": "Coverage or Unknown",
             "format": "CSV, JSON, API, XLSX, table, catalogue, database, or unknown",
+            "source_type": "statistical_authority",
             "official_source": true,
             "actual_data_access": true,
             "geographic_match": true
@@ -422,14 +439,25 @@ def search_public_datasets(
             []
         ):
 
-            is_valid, message, detail = validate_dataset_candidate(
+            validation_result = validate_dataset_candidate(
                 dataset=dataset,
                 real_urls=real_urls,
                 seen_urls=seen_urls
             )
 
 
-            if not is_valid:
+            message = validation_result.get(
+                "message"
+            )
+
+            detail = validation_result.get(
+                "detail"
+            )
+
+
+            if not validation_result.get(
+                "accepted"
+            ):
 
                 if detail is None:
 
@@ -447,7 +475,12 @@ def search_public_datasets(
                 continue
 
 
-            url = dataset.get(
+            accepted_dataset = validation_result.get(
+                "dataset",
+                dataset
+            )
+
+            url = accepted_dataset.get(
                 "source_url"
             )
 
@@ -457,7 +490,7 @@ def search_public_datasets(
 
 
             all_datasets.append(
-                dataset
+                accepted_dataset
             )
 
 
