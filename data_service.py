@@ -1,10 +1,9 @@
-import os
 import json
 
-from urllib.parse import urlparse
-
 from google import genai
-from tavily import TavilyClient
+
+from search_service import search_web
+from validation import validate_dataset_candidate
 
 
 # ---------------------------------------------------------
@@ -12,21 +11,6 @@ from tavily import TavilyClient
 # ---------------------------------------------------------
 
 gemini_client = genai.Client()
-
-
-# ---------------------------------------------------------
-# DOMAINS WE DO NOT WANT TO ACCEPT
-# ---------------------------------------------------------
-
-BLOCKED_DOMAINS = {
-    "worldometers.info",
-    "statista.com",
-    "wikipedia.org",
-    "sciencedirect.com",
-    "researchgate.net",
-    "kaggle.com",
-    "medium.com"
-}
 
 
 # ---------------------------------------------------------
@@ -51,51 +35,6 @@ def clean_json_response(response_text):
 
 
     return response_text.strip()
-
-
-# ---------------------------------------------------------
-# DOMAIN UTILITIES
-# ---------------------------------------------------------
-
-def get_domain(url):
-
-    try:
-
-        domain = urlparse(
-            url
-        ).netloc.lower()
-
-
-        if domain.startswith("www."):
-            domain = domain[4:]
-
-
-        return domain
-
-
-    except Exception:
-
-        return ""
-
-
-def is_blocked_domain(url):
-
-    domain = get_domain(
-        url
-    )
-
-
-    return any(
-
-        domain == blocked
-        or
-        domain.endswith(
-            "." + blocked
-        )
-
-        for blocked
-        in BLOCKED_DOMAINS
-    )
 
 
 # ---------------------------------------------------------
@@ -388,23 +327,6 @@ def search_public_datasets(
     data_targets
 ):
 
-    tavily_api_key = os.getenv(
-        "TAVILY_API_KEY"
-    )
-
-
-    if not tavily_api_key:
-
-        raise RuntimeError(
-            "TAVILY_API_KEY is not configured."
-        )
-
-
-    tavily_client = TavilyClient(
-        api_key=tavily_api_key
-    )
-
-
     all_datasets = []
 
     seen_urls = set()
@@ -447,17 +369,9 @@ def search_public_datasets(
         # 2. TAVILY SEARCHES REAL WEB
         # ---------------------------------------------
 
-        tavily_response = tavily_client.search(
+        search_results = search_web(
             query=query,
-            search_depth="basic",
-            max_results=10,
-            include_answer=False
-        )
-
-
-        search_results = tavily_response.get(
-            "results",
-            []
+            max_results=10
         )
 
 
@@ -508,93 +422,34 @@ def search_public_datasets(
             []
         ):
 
-            url = dataset.get(
-                "source_url"
+            is_valid, message, detail = validate_dataset_candidate(
+                dataset=dataset,
+                real_urls=real_urls,
+                seen_urls=seen_urls
             )
 
 
-            if not url:
+            if not is_valid:
 
-                print(
-                    "REJECTED: missing URL"
-                )
+                if detail is None:
 
-                continue
+                    print(
+                        message
+                    )
 
+                else:
 
-            # Gemini is only allowed to choose
-            # URLs Tavily actually returned.
-            if url not in real_urls:
-
-                print(
-                    "REJECTED URL NOT FROM TAVILY:",
-                    url
-                )
+                    print(
+                        message,
+                        detail
+                    )
 
                 continue
 
 
-            # Reject known unwanted domains.
-            if is_blocked_domain(
-                url
-            ):
-
-                print(
-                    "REJECTED BLOCKED DOMAIN:",
-                    url
-                )
-
-                continue
-
-
-            # Gemini must explicitly verify
-            # all three conditions.
-            if dataset.get(
-                "official_source"
-            ) is not True:
-
-                print(
-                    "REJECTED NOT OFFICIAL:",
-                    url
-                )
-
-                continue
-
-
-            if dataset.get(
-                "actual_data_access"
-            ) is not True:
-
-                print(
-                    "REJECTED NO DATA ACCESS:",
-                    url
-                )
-
-                continue
-
-
-            if dataset.get(
-                "geographic_match"
-            ) is not True:
-
-                print(
-                    "REJECTED GEOGRAPHY:",
-                    url
-                )
-
-                continue
-
-
-            # Avoid duplicate URLs.
-            if url in seen_urls:
-
-                print(
-                    "REJECTED DUPLICATE:",
-                    url
-                )
-
-                continue
-
+            url = dataset.get(
+                "source_url"
+            )
 
             seen_urls.add(
                 url
@@ -607,10 +462,8 @@ def search_public_datasets(
 
 
             print(
-                "ACCEPTED:",
-                dataset.get(
-                    "title"
-                )
+                message,
+                detail
             )
 
 
