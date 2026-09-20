@@ -301,11 +301,7 @@ def save_dataset_candidates(
                         %s,
                         %s,
                         %s,
-                        CASE
-                            WHEN %s IS NOT NULL
-                            THEN NOW()
-                            ELSE NULL
-                        END,
+                        NOW(),
                         'pending_review'
                     )
 
@@ -363,10 +359,6 @@ def save_dataset_candidates(
 
                         dataset.get(
                             "final_url"
-                        ),
-
-                        dataset.get(
-                            "link_status"
                         )
                     )
                 )
