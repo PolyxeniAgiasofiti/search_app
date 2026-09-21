@@ -955,6 +955,171 @@ def normalise_url_context_analysis(
     return analysis
 
 
+def provider_metadata_is_resolved(metadata):
+
+    source_title = (
+        str(
+            metadata.get(
+                "source_title",
+                ""
+            )
+        ).strip()
+        if metadata
+        else
+        ""
+    )
+
+    return (
+        metadata
+        and
+        metadata.get(
+            "provider"
+        ) == "eurostat"
+        and
+        metadata.get(
+            "dataset_code"
+        )
+        and
+        metadata.get(
+            "source_title"
+        )
+        and
+        not source_title.isdigit()
+        and
+        (
+            metadata.get(
+                "data_access_url"
+            )
+            or
+            metadata.get(
+                "available_information"
+            )
+        )
+    )
+
+
+def build_provider_resolved_analysis(metadata):
+
+    source_title = metadata.get(
+        "source_title"
+    )
+
+    return {
+        "relevant":
+            True,
+
+        "useful_data_source":
+            True,
+
+        "validation_status":
+            "validated",
+
+        "reason":
+            "Known provider source resolved deterministically.",
+
+        "proposed_data_target":
+            source_title,
+
+        "target_description":
+            metadata.get(
+                "description",
+                source_title
+            ),
+
+        "available_information":
+            metadata.get(
+                "available_information",
+                []
+            ),
+
+        "source_title":
+            source_title,
+
+        "publisher":
+            metadata.get(
+                "publisher",
+                "Eurostat"
+            ),
+
+        "geographic_coverage":
+            metadata.get(
+                "geographic_coverage",
+                "unknown"
+            ),
+
+        "time_coverage":
+            metadata.get(
+                "time_coverage",
+                "unknown"
+            ),
+
+        "source_type":
+            metadata.get(
+                "source_type",
+                "statistical_authority"
+            ),
+
+        "data_access_type":
+            metadata.get(
+                "data_access_type",
+                "table"
+            ),
+
+        "dataset_code":
+            metadata.get(
+                "dataset_code"
+            ),
+
+        "doi":
+            metadata.get(
+                "doi"
+            ),
+
+        "is_custom_view":
+            metadata.get(
+                "is_custom_view",
+                False
+            ),
+
+        "bookmark_id":
+            metadata.get(
+                "bookmark_id"
+            ),
+
+        "custom_selection_status":
+            metadata.get(
+                "custom_selection_status",
+                "not_applicable"
+            ),
+
+        "selected_dimensions":
+            metadata.get(
+                "selected_dimensions",
+                {}
+            ),
+
+        "data_access_url":
+            metadata.get(
+                "data_access_url"
+            ),
+
+        "data_access_provider":
+            metadata.get(
+                "data_access_provider"
+            ),
+
+        "data_access_role":
+            metadata.get(
+                "data_access_role"
+            ),
+
+        "retrieval_scope":
+            metadata.get(
+                "retrieval_scope"
+            )
+    }
+
+
 def analyse_user_provided_source(
     definition,
     existing_data_targets,
@@ -1007,13 +1172,77 @@ def analyse_user_provided_source(
                 )
         }
 
-    if url_context_func is None and analyzer_func is None:
+    metadata = None
+
+    try:
+        metadata = resolve_source_metadata(
+            url,
+            urlopen_func=urlopen_func
+        )
+    except Exception:
+        metadata = None
+
+    provider_resolved = provider_metadata_is_resolved(
+        metadata
+    )
+
+    if url_context_func is None and analyzer_func is None and not provider_resolved:
         url_context_func = analyze_manual_source_url_context
 
     url_context_result = None
-    url_context_success = False
+    url_context_success = provider_resolved
 
-    if url_context_func is not None:
+    if provider_resolved:
+
+        analysis = build_provider_resolved_analysis(
+            metadata
+        )
+        evidence = merge_provider_metadata(
+            build_source_evidence(
+                fetch_result
+            ),
+            metadata
+        )
+
+        if url_context_func is not None:
+            try:
+                url_context_result = url_context_func(
+                    definition,
+                    existing_data_targets,
+                    url
+                )
+                if url_context_retrieval_succeeded(
+                    url_context_result.get(
+                        "url_context_metadata",
+                        []
+                    ),
+                    url
+                ):
+                    enrichment = normalise_url_context_analysis(
+                        url_context_result
+                    )
+                    if (
+                        enrichment
+                        and
+                        enrichment.get(
+                            "relevant"
+                        ) is True
+                        and
+                        enrichment.get(
+                            "useful_data_source"
+                        ) is True
+                        and
+                        enrichment.get(
+                            "validation_status"
+                        ) == "validated"
+                    ):
+                        analysis.update(
+                            enrichment
+                        )
+            except Exception:
+                pass
+
+    elif url_context_func is not None:
         try:
             url_context_result = url_context_func(
                 definition,
@@ -1033,9 +1262,7 @@ def analyse_user_provided_source(
     extraction_result = None
     extraction_succeeded = False
 
-    metadata = None
-
-    if url_context_success:
+    if url_context_success and not provider_resolved:
 
         analysis = normalise_url_context_analysis(
             url_context_result
@@ -1063,15 +1290,7 @@ def analyse_user_provided_source(
                 )
         }
 
-        try:
-            metadata = resolve_source_metadata(
-                url,
-                urlopen_func=urlopen_func
-            )
-        except Exception:
-            metadata = None
-
-    else:
+    elif not provider_resolved:
 
         if extractor_func is None:
             extractor_func = extract_url_content
@@ -1127,23 +1346,10 @@ def analyse_user_provided_source(
             fetch_result
         )
 
-        try:
-            metadata = resolve_source_metadata(
-                url,
-                urlopen_func=urlopen_func
-            )
-        except Exception:
-            metadata = None
-
     elif not url_context_success:
 
         evidence = build_source_evidence(
             fetch_result
-        )
-
-        metadata = resolve_source_metadata(
-            url,
-            urlopen_func=urlopen_func
         )
 
         if (

@@ -1339,6 +1339,173 @@ def test_unresolved_eurostat_bookmark_uses_dbnomics_only_for_data_access():
     assert result["selected_dimensions"] == {}
 
 
+def test_resolved_eurostat_provider_is_not_vetoed_by_generic_js_shell():
+
+    generic_calls = {
+        "url_context": 0,
+        "extractor": 0,
+        "analyzer": 0
+    }
+
+
+    def fake_urlopen(request, timeout=10):
+        if "api.db.nomics.world" in request.full_url:
+            return FakeResponse(
+                request.full_url,
+                json_bytes(
+                    {
+                        "datasets": {
+                            "docs": [
+                                {
+                                    "code": "yth_demo_030",
+                                    "name": (
+                                        "Estimated average age of young persons "
+                                        "leaving the parental household"
+                                    ),
+                                    "description": "Eurostat mirrored dataset."
+                                }
+                            ]
+                        }
+                    }
+                ),
+                "application/json"
+            )
+
+        return FakeResponse(
+            request.full_url,
+            b"<html><title>Server temporarily unavailable</title></html>",
+            "text/html"
+        )
+
+
+    def fake_url_context(definition, targets, url):
+        generic_calls["url_context"] += 1
+        return {
+            "analysis": {
+                "relevant": False,
+                "useful_data_source": False,
+                "validation_status": "invalid",
+                "reason": (
+                    "The URL returned a dynamic JavaScript application shell."
+                )
+            },
+            "url_context_metadata": [
+                {
+                    "retrieved_url": url,
+                    "url_retrieval_status": "success"
+                }
+            ]
+        }
+
+
+    def fake_extractor(url, definition=None):
+        generic_calls["extractor"] += 1
+        return {
+            "status": "success",
+            "content": "The URL returned a dynamic JavaScript application shell."
+        }
+
+
+    def fake_analyzer(definition, targets, evidence):
+        generic_calls["analyzer"] += 1
+        return {
+            "relevant": False,
+            "useful_data_source": False,
+            "validation_status": "invalid",
+            "reason": "The URL returned a dynamic JavaScript application shell."
+        }
+
+
+    original_getaddrinfo = manual_source_service.socket.getaddrinfo
+
+    try:
+        manual_source_service.socket.getaddrinfo = lambda *_: PUBLIC_TEST_ADDRESS
+
+        result = analyse_user_provided_source(
+            "gerontocracy definition",
+            [],
+            EUROSTAT_BOOKMARK_URL,
+            analyzer_func=fake_analyzer,
+            urlopen_func=fake_urlopen,
+            extractor_func=fake_extractor,
+            url_context_func=fake_url_context
+        )
+
+    finally:
+        manual_source_service.socket.getaddrinfo = original_getaddrinfo
+
+    assert generic_calls == {
+        "url_context": 1,
+        "extractor": 0,
+        "analyzer": 0
+    }
+    assert result["accepted"] is True
+    assert result["validation_status"] == "validated"
+    assert result["source_url"] == EUROSTAT_BOOKMARK_URL
+    assert result["publisher"] == "Eurostat"
+    assert result["source_title"] == (
+        "Estimated average age of young persons leaving the parental household"
+    )
+    assert result["data_target"] == (
+        "Estimated average age of young persons leaving the parental household"
+    )
+    assert result["dataset_code"] == "yth_demo_030"
+    assert result["bookmark_id"] == "4e866041-fb81-4144-be5d-0f064c5edb21"
+    assert result["custom_selection_status"] == "unresolved"
+    assert result["selected_dimensions"] == {}
+    assert result["retrieval_scope"] == "dataset"
+
+
+def test_unknown_provider_js_shell_still_rejected():
+
+    def fake_urlopen(request, timeout=10):
+        return FakeResponse(
+            request.full_url,
+            b"<html><title>Loading</title><script src='app.js'></script></html>",
+            "text/html"
+        )
+
+
+    def fake_url_context(definition, targets, url):
+        return {
+            "analysis": {
+                "relevant": False,
+                "useful_data_source": False,
+                "validation_status": "invalid",
+                "reason": (
+                    "The URL returned a dynamic JavaScript application shell."
+                )
+            },
+            "url_context_metadata": [
+                {
+                    "retrieved_url": url,
+                    "url_retrieval_status": "success"
+                }
+            ]
+        }
+
+
+    original_getaddrinfo = manual_source_service.socket.getaddrinfo
+
+    try:
+        manual_source_service.socket.getaddrinfo = lambda *_: PUBLIC_TEST_ADDRESS
+
+        result = analyse_user_provided_source(
+            "gerontocracy definition",
+            [],
+            "https://example.org/app",
+            urlopen_func=fake_urlopen,
+            url_context_func=fake_url_context
+        )
+
+    finally:
+        manual_source_service.socket.getaddrinfo = original_getaddrinfo
+
+    assert result["accepted"] is False
+    assert result["validation_status"] == "invalid"
+    assert "dynamic JavaScript application shell" in result["message"]
+
+
 def test_manual_url_context_failure_falls_back_to_extract():
 
     calls = {
@@ -1527,6 +1694,8 @@ if __name__ == "__main__":
     test_eurostat_manual_source_needs_review_when_metadata_fails()
     test_manual_url_context_preserves_eurostat_bookmark_selection()
     test_unresolved_eurostat_bookmark_uses_dbnomics_only_for_data_access()
+    test_resolved_eurostat_provider_is_not_vetoed_by_generic_js_shell()
+    test_unknown_provider_js_shell_still_rejected()
     test_manual_url_context_failure_falls_back_to_extract()
     test_url_context_ai_call_uses_url_context_without_google_search()
     print("manual source service tests passed")
