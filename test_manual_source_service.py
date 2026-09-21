@@ -3,6 +3,7 @@ from urllib.error import HTTPError
 import manual_source_service
 
 from manual_source_service import analyse_user_provided_source, validate_safe_url
+from search_service import extract_url_content
 from source_metadata_service import (
     extract_eurostat_metadata_from_xml,
     extract_eurostat_dataset_code,
@@ -81,6 +82,44 @@ class FakeResponse:
         return self._status
 
 
+class FakeTavilyClient:
+
+    def __init__(self):
+        self.calls = []
+
+
+    def extract(self, **kwargs):
+        self.calls.append(
+            kwargs
+        )
+
+        if kwargs.get(
+            "extract_depth"
+        ) == "basic":
+
+            return {
+                "results": [
+                    {
+                        "url": kwargs["urls"][0],
+                        "raw_content": ""
+                    }
+                ]
+            }
+
+        return {
+            "results": [
+                {
+                    "url": kwargs["urls"][0],
+                    "raw_content": (
+                        "Estimated average age of young people leaving the "
+                        "parental household by sex. Official statistical "
+                        "table with dimensions for sex, country, and year."
+                    )
+                }
+            ]
+        }
+
+
 def test_private_url_is_rejected_before_inspection():
 
     try:
@@ -88,6 +127,25 @@ def test_private_url_is_rejected_before_inspection():
         assert False
     except ValueError:
         assert True
+
+
+def test_extract_url_content_retries_advanced_after_empty_basic():
+
+    client = FakeTavilyClient()
+
+    result = extract_url_content(
+        "https://example.org/data",
+        definition="gerontocracy definition",
+        tavily_client=client
+    )
+
+    assert result["status"] == "success"
+    assert result["extract_depth"] == "advanced"
+    assert client.calls[0]["urls"] == ["https://example.org/data"]
+    assert client.calls[0]["extract_depth"] == "basic"
+    assert client.calls[1]["urls"] == ["https://example.org/data"]
+    assert client.calls[1]["extract_depth"] == "advanced"
+    assert "Current approved definition" in client.calls[0]["query"]
 
 
 def test_valid_csv_source_can_be_added():
@@ -140,6 +198,283 @@ def test_valid_csv_source_can_be_added():
     assert result["accepted"] is True
     assert result["validation_status"] == "validated"
     assert result["source_url"] == "https://example.org/data.csv"
+
+
+def test_manual_url_uses_exact_tavily_extract_content():
+
+    calls = []
+
+
+    def fake_urlopen(request, timeout=10):
+        return FakeResponse(
+            request.full_url,
+            b"<html><title>Dataset page</title></html>",
+            "text/html"
+        )
+
+
+    def fake_extractor(url, definition=None):
+        calls.append(
+            {
+                "url": url,
+                "definition": definition
+            }
+        )
+        return {
+            "status": "success",
+            "extract_depth": "basic",
+            "provided_url": url,
+            "final_url": url,
+            "content": (
+                "Dataset title: Estimated average age of young people "
+                "leaving the parental household by sex. Publisher: Eurostat. "
+                "This page provides an official statistical table with years, "
+                "countries, and sex dimensions."
+            ),
+            "attempts": [
+                {
+                    "extract_depth": "basic",
+                    "status": "success"
+                }
+            ]
+        }
+
+
+    def fake_analyzer(definition, targets, evidence):
+        assert evidence["content_kind"] == "tavily_extract"
+        assert evidence["extract_depth"] == "basic"
+        assert "Estimated average age" in evidence["extracted_text"]
+
+        return {
+            "relevant": True,
+            "useful_data_source": True,
+            "validation_status": "validated",
+            "reason": "Official table.",
+            "proposed_data_target": "Estimated average age of young people leaving the parental household",
+            "target_description": "Official statistical table about leaving the parental household.",
+            "available_information": ["years", "countries", "sex"],
+            "source_title": "Estimated average age of young people leaving the parental household by sex",
+            "publisher": "Eurostat",
+            "geographic_coverage": "unknown",
+            "time_coverage": "unknown",
+            "source_type": "statistical_authority",
+            "data_access_type": "table"
+        }
+
+
+    original_getaddrinfo = manual_source_service.socket.getaddrinfo
+
+    try:
+        manual_source_service.socket.getaddrinfo = lambda *_: PUBLIC_TEST_ADDRESS
+
+        result = analyse_user_provided_source(
+            "gerontocracy definition",
+            [],
+            "https://example.org/exact-url",
+            analyzer_func=fake_analyzer,
+            urlopen_func=fake_urlopen,
+            extractor_func=fake_extractor
+        )
+
+    finally:
+        manual_source_service.socket.getaddrinfo = original_getaddrinfo
+
+    assert calls == [
+        {
+            "url": "https://example.org/exact-url",
+            "definition": "gerontocracy definition"
+        }
+    ]
+    assert result["accepted"] is True
+    assert result["source_url"] == "https://example.org/exact-url"
+    assert result["source_title"] == "Estimated average age of young people leaving the parental household by sex"
+
+
+def test_tavily_extract_cookie_recipe_is_rejected():
+
+    def fake_urlopen(request, timeout=10):
+        return FakeResponse(
+            request.full_url,
+            b"<html><title>Cookies</title></html>",
+            "text/html"
+        )
+
+
+    def fake_extractor(url, definition=None):
+        return {
+            "status": "success",
+            "extract_depth": "basic",
+            "content": (
+                "Soft chocolate chip cookies. Ingredients include flour, "
+                "sugar, butter, eggs, and chocolate. Bake for 12 minutes."
+            )
+        }
+
+
+    def fake_analyzer(definition, targets, evidence):
+        return {
+            "relevant": False,
+            "useful_data_source": False,
+            "validation_status": "invalid",
+            "reason": "Recipe content, not a data source.",
+            "proposed_data_target": "",
+            "target_description": "",
+            "available_information": [],
+            "source_title": "Soft chocolate chip cookies",
+            "publisher": "unknown",
+            "geographic_coverage": "unknown",
+            "time_coverage": "unknown",
+            "source_type": "unknown",
+            "data_access_type": "unknown"
+        }
+
+
+    original_getaddrinfo = manual_source_service.socket.getaddrinfo
+
+    try:
+        manual_source_service.socket.getaddrinfo = lambda *_: PUBLIC_TEST_ADDRESS
+
+        result = analyse_user_provided_source(
+            "gerontocracy definition",
+            [],
+            "https://example.org/cookies",
+            analyzer_func=fake_analyzer,
+            urlopen_func=fake_urlopen,
+            extractor_func=fake_extractor
+        )
+
+    finally:
+        manual_source_service.socket.getaddrinfo = original_getaddrinfo
+
+    assert result["accepted"] is False
+    assert result["validation_status"] == "invalid"
+
+
+def test_relevant_article_without_data_is_not_validated():
+
+    def fake_urlopen(request, timeout=10):
+        return FakeResponse(
+            request.full_url,
+            b"<html><title>Ageing article</title></html>",
+            "text/html"
+        )
+
+
+    def fake_extractor(url, definition=None):
+        return {
+            "status": "success",
+            "extract_depth": "advanced",
+            "content": (
+                "This article discusses population ageing and political power "
+                "among older generations, but does not provide a table, API, "
+                "download, database, or structured dataset."
+            )
+        }
+
+
+    def fake_analyzer(definition, targets, evidence):
+        return {
+            "relevant": True,
+            "useful_data_source": False,
+            "validation_status": "needs_review",
+            "reason": "Relevant article, but no structured data access.",
+            "proposed_data_target": "Population ageing discussion",
+            "target_description": "Article discussion without data access.",
+            "available_information": [],
+            "source_title": "Population ageing article",
+            "publisher": "Example News",
+            "geographic_coverage": "unknown",
+            "time_coverage": "unknown",
+            "source_type": "unknown",
+            "data_access_type": "unknown"
+        }
+
+
+    original_getaddrinfo = manual_source_service.socket.getaddrinfo
+
+    try:
+        manual_source_service.socket.getaddrinfo = lambda *_: PUBLIC_TEST_ADDRESS
+
+        result = analyse_user_provided_source(
+            "gerontocracy definition",
+            [],
+            "https://example.org/article",
+            analyzer_func=fake_analyzer,
+            urlopen_func=fake_urlopen,
+            extractor_func=fake_extractor
+        )
+
+    finally:
+        manual_source_service.socket.getaddrinfo = original_getaddrinfo
+
+    assert result["accepted"] is False
+    assert result["validation_status"] == "needs_review"
+
+
+def test_tavily_extract_failure_returns_needs_review_without_invented_title():
+
+    def fake_urlopen(request, timeout=10):
+        return FakeResponse(
+            request.full_url,
+            b"<html><title>JavaScript app</title><script></script></html>",
+            "text/html"
+        )
+
+
+    def fake_extractor(url, definition=None):
+        return {
+            "status": "empty",
+            "content": "",
+            "attempts": [
+                {
+                    "extract_depth": "basic",
+                    "status": "empty"
+                },
+                {
+                    "extract_depth": "advanced",
+                    "status": "empty"
+                }
+            ]
+        }
+
+
+    def fake_analyzer(definition, targets, evidence):
+        return {
+            "relevant": True,
+            "useful_data_source": True,
+            "validation_status": "validated",
+            "reason": "Bad invented fallback.",
+            "proposed_data_target": "Demographic Structure",
+            "target_description": "Generic demographic structure.",
+            "available_information": [],
+            "source_title": "unknown",
+            "publisher": "unknown",
+            "geographic_coverage": "unknown",
+            "time_coverage": "unknown",
+            "source_type": "unknown",
+            "data_access_type": "unknown"
+        }
+
+
+    original_getaddrinfo = manual_source_service.socket.getaddrinfo
+
+    try:
+        manual_source_service.socket.getaddrinfo = lambda *_: PUBLIC_TEST_ADDRESS
+
+        result = analyse_user_provided_source(
+            "gerontocracy definition",
+            [],
+            "https://example.org/js-app",
+            analyzer_func=fake_analyzer,
+            urlopen_func=fake_urlopen,
+            extractor_func=fake_extractor
+        )
+
+    finally:
+        manual_source_service.socket.getaddrinfo = original_getaddrinfo
+
+    assert result["accepted"] is False
+    assert result["validation_status"] == "needs_review"
 
 
 def test_irrelevant_source_is_not_added():
@@ -656,7 +991,12 @@ def json_bytes(value):
 
 if __name__ == "__main__":
     test_private_url_is_rejected_before_inspection()
+    test_extract_url_content_retries_advanced_after_empty_basic()
     test_valid_csv_source_can_be_added()
+    test_manual_url_uses_exact_tavily_extract_content()
+    test_tavily_extract_cookie_recipe_is_rejected()
+    test_relevant_article_without_data_is_not_validated()
+    test_tavily_extract_failure_returns_needs_review_without_invented_title()
     test_irrelevant_source_is_not_added()
     test_broken_url_is_not_added()
     test_eurostat_databrowser_uses_official_metadata_title()

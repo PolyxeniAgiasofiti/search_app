@@ -14,6 +14,7 @@ from urllib.request import (
 
 from ai_service import analyze_manual_source
 from ingestion_service import detect_format, parse_json_bytes, parse_xlsx_bytes
+from search_service import extract_url_content
 from source_metadata_service import resolve_source_metadata
 from validation import (
     normalise_data_access_type,
@@ -715,6 +716,59 @@ def build_source_evidence(
     return inspected
 
 
+def build_tavily_source_evidence(
+    extraction_result,
+    fetch_result
+):
+
+    content = extraction_result.get(
+        "content",
+        ""
+    )
+
+    return {
+        "content_kind":
+            "tavily_extract",
+
+        "original_url":
+            fetch_result.get(
+                "original_url"
+            ),
+
+        "final_url":
+            extraction_result.get(
+                "final_url"
+            )
+            or
+            fetch_result.get(
+                "final_url"
+            ),
+
+        "content_type":
+            fetch_result.get(
+                "content_type",
+                ""
+            ),
+
+        "extract_depth":
+            extraction_result.get(
+                "extract_depth"
+            ),
+
+        "extracted_text":
+            content[:MAX_EVIDENCE_TEXT],
+
+        "text":
+            content[:MAX_EVIDENCE_TEXT],
+
+        "extraction_attempts":
+            extraction_result.get(
+                "attempts",
+                []
+            )
+    }
+
+
 def merge_provider_metadata(
     evidence,
     metadata
@@ -818,7 +872,8 @@ def analyse_user_provided_source(
     existing_data_targets,
     url,
     analyzer_func=None,
-    urlopen_func=None
+    urlopen_func=None,
+    extractor_func=None
 ):
 
     fetch_result = fetch_source(
@@ -863,60 +918,126 @@ def analyse_user_provided_source(
                 )
         }
 
-    evidence = build_source_evidence(
-        fetch_result
-    )
+    if extractor_func is None:
+        extractor_func = extract_url_content
 
-    metadata = resolve_source_metadata(
-        url,
-        urlopen_func=urlopen_func
-    )
-
-    if (
-        metadata
-        and
-        metadata.get(
-            "provider"
-        ) == "eurostat"
-        and
-        not metadata.get(
-            "source_title"
+    try:
+        extraction_result = extractor_func(
+            url,
+            definition=definition
         )
-    ):
-
-        return {
-            "accepted":
-                False,
-
-            "validation_status":
-                "needs_review",
-
-            "link_status":
-                "reachable",
-
-            "source_url":
-                url,
-
-            "final_url":
-                fetch_result.get(
-                    "final_url"
-                ),
-
-            "publisher":
-                "Eurostat",
-
-            "source_type":
-                "statistical_authority",
-
-            "data_access_type":
-                "table",
+    except Exception as error:
+        extraction_result = {
+            "status":
+                "error",
 
             "message":
-                metadata.get(
-                    "metadata_error",
-                    "Official Eurostat metadata could not be resolved."
-                )
+                str(
+                    error
+                ),
+
+            "attempts":
+                [
+                    {
+                        "status":
+                            "error",
+
+                        "message":
+                            str(
+                                error
+                            )
+                    }
+                ]
         }
+
+    extraction_succeeded = (
+        isinstance(
+            extraction_result,
+            dict
+        )
+        and
+        extraction_result.get(
+            "status"
+        ) == "success"
+        and
+        extraction_result.get(
+            "content"
+        )
+    )
+
+    metadata = None
+
+    if extraction_succeeded:
+
+        evidence = build_tavily_source_evidence(
+            extraction_result,
+            fetch_result
+        )
+
+        try:
+            metadata = resolve_source_metadata(
+                url,
+                urlopen_func=urlopen_func
+            )
+        except Exception:
+            metadata = None
+
+    else:
+
+        evidence = build_source_evidence(
+            fetch_result
+        )
+
+        metadata = resolve_source_metadata(
+            url,
+            urlopen_func=urlopen_func
+        )
+
+        if (
+            metadata
+            and
+            metadata.get(
+                "provider"
+            ) == "eurostat"
+            and
+            not metadata.get(
+                "source_title"
+            )
+        ):
+
+            return {
+                "accepted":
+                    False,
+
+                "validation_status":
+                    "needs_review",
+
+                "link_status":
+                    "reachable",
+
+                "source_url":
+                    url,
+
+                "final_url":
+                    fetch_result.get(
+                        "final_url"
+                    ),
+
+                "publisher":
+                    "Eurostat",
+
+                "source_type":
+                    "statistical_authority",
+
+                "data_access_type":
+                    "table",
+
+                "message":
+                    metadata.get(
+                        "metadata_error",
+                        "Tavily Extract did not return enough content, and official metadata could not be resolved."
+                    )
+            }
 
     evidence = merge_provider_metadata(
         evidence,
@@ -993,9 +1114,27 @@ def analyse_user_provided_source(
         "unknown"
     )
 
-    if metadata and metadata.get(
-        "source_title"
-    ):
+    should_apply_metadata_display = (
+        metadata
+        and
+        metadata.get(
+            "source_title"
+        )
+        and
+        (
+            not extraction_succeeded
+            or
+            is_bad_display_value(
+                source_title
+            )
+            or
+            is_generic_manual_title(
+                source_title
+            )
+        )
+    )
+
+    if should_apply_metadata_display:
 
         source_title = metadata.get(
             "source_title"
