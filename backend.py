@@ -776,6 +776,12 @@ def server(input, output, session):
                     "unknown"
                 ),
 
+            "format":
+                analysis.get(
+                    "data_access_type",
+                    "unknown"
+                ),
+
             "geographic_coverage":
                 analysis.get(
                     "geographic_coverage",
@@ -786,6 +792,11 @@ def server(input, output, session):
                 analysis.get(
                     "time_coverage",
                     "unknown"
+                ),
+
+            "source_metadata":
+                analysis.get(
+                    "source_metadata"
                 )
         }
 

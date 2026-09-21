@@ -97,8 +97,11 @@ def build_user_provided_dataset_candidate(target):
 
         "format":
             target.get(
-                "data_access_type",
-                "unknown"
+                "format"
+            )
+            or
+            target.get(
+                "data_access_type"
             ),
 
         "source_type":

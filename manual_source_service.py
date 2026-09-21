@@ -14,6 +14,7 @@ from urllib.request import (
 
 from ai_service import analyze_manual_source
 from ingestion_service import detect_format, parse_json_bytes, parse_xlsx_bytes
+from source_metadata_service import resolve_source_metadata
 from validation import (
     normalise_data_access_type,
     normalise_source_type
@@ -22,6 +23,15 @@ from validation import (
 
 MAX_INSPECTION_BYTES = 2 * 1024 * 1024
 MAX_EVIDENCE_TEXT = 6000
+GENERIC_MANUAL_TITLES = {
+    "unknown",
+    "age statistics",
+    "demographic structure data",
+    "relevant population dataset",
+    "population dataset",
+    "user-provided data target",
+    "user provided data target"
+}
 
 
 class UnsafeUrlError(ValueError):
@@ -690,6 +700,58 @@ def build_source_evidence(
     return inspected
 
 
+def merge_provider_metadata(
+    evidence,
+    metadata
+):
+
+    if not metadata:
+        return evidence
+
+    enriched = evidence.copy()
+    enriched["provider_metadata"] = metadata
+
+    if metadata.get(
+        "source_title"
+    ):
+
+        enriched["title"] = metadata.get(
+            "source_title"
+        )
+
+    if metadata.get(
+        "description"
+    ):
+
+        enriched["official_description"] = metadata.get(
+            "description"
+        )
+
+    if metadata.get(
+        "available_information"
+    ):
+
+        enriched["available_information"] = metadata.get(
+            "available_information"
+        )
+
+    return enriched
+
+
+def is_generic_manual_title(value):
+
+    if not value:
+        return True
+
+    cleaned = " ".join(
+        str(
+            value
+        ).strip().lower().split()
+    )
+
+    return cleaned in GENERIC_MANUAL_TITLES
+
+
 def analyse_user_provided_source(
     definition,
     existing_data_targets,
@@ -744,6 +806,62 @@ def analyse_user_provided_source(
         fetch_result
     )
 
+    metadata = resolve_source_metadata(
+        url,
+        urlopen_func=urlopen_func
+    )
+
+    if (
+        metadata
+        and
+        metadata.get(
+            "provider"
+        ) == "eurostat"
+        and
+        not metadata.get(
+            "source_title"
+        )
+    ):
+
+        return {
+            "accepted":
+                False,
+
+            "validation_status":
+                "needs_review",
+
+            "link_status":
+                "reachable",
+
+            "source_url":
+                url,
+
+            "final_url":
+                fetch_result.get(
+                    "final_url"
+                ),
+
+            "publisher":
+                "Eurostat",
+
+            "source_type":
+                "statistical_authority",
+
+            "data_access_type":
+                "table",
+
+            "message":
+                metadata.get(
+                    "metadata_error",
+                    "Official Eurostat metadata could not be resolved."
+                )
+        }
+
+    evidence = merge_provider_metadata(
+        evidence,
+        metadata
+    )
+
     if analyzer_func is None:
 
         analyzer_func = analyze_manual_source
@@ -783,6 +901,74 @@ def analyse_user_provided_source(
         )
     )
 
+    source_title = analysis.get(
+        "source_title",
+        evidence.get(
+            "title",
+            "unknown"
+        )
+    )
+
+    publisher = analysis.get(
+        "publisher",
+        "unknown"
+    )
+
+    target_description = analysis.get(
+        "target_description",
+        ""
+    )
+
+    available_information = analysis.get(
+        "available_information",
+        []
+    )
+
+    if metadata and metadata.get(
+        "source_title"
+    ):
+
+        source_title = metadata.get(
+            "source_title"
+        )
+        publisher = metadata.get(
+            "publisher",
+            publisher
+        )
+        target_description = metadata.get(
+            "description",
+            target_description
+        )
+        available_information = metadata.get(
+            "available_information",
+            available_information
+        )
+        source_type = normalise_source_type(
+            metadata.get(
+                "source_type"
+            )
+        )
+        data_access_type = normalise_data_access_type(
+            metadata.get(
+                "data_access_type"
+            )
+        )
+
+    data_target = analysis.get(
+        "proposed_data_target",
+        ""
+    )
+
+    if metadata and metadata.get(
+        "source_title"
+    ) and is_generic_manual_title(
+        data_target
+    ):
+
+        data_target = metadata.get(
+            "source_title"
+        )
+
     return {
         "accepted":
             accepted,
@@ -815,37 +1001,19 @@ def analyse_user_provided_source(
             ),
 
         "data_target":
-            analysis.get(
-                "proposed_data_target",
-                ""
-            ),
+            data_target,
 
         "target_description":
-            analysis.get(
-                "target_description",
-                ""
-            ),
+            target_description,
 
         "available_information":
-            analysis.get(
-                "available_information",
-                []
-            ),
+            available_information,
 
         "source_title":
-            analysis.get(
-                "source_title",
-                evidence.get(
-                    "title",
-                    "unknown"
-                )
-            ),
+            source_title,
 
         "publisher":
-            analysis.get(
-                "publisher",
-                "unknown"
-            ),
+            publisher,
 
         "geographic_coverage":
             analysis.get(
@@ -867,6 +1035,9 @@ def analyse_user_provided_source(
 
         "evidence":
             evidence,
+
+        "source_metadata":
+            metadata,
 
         "message":
             analysis.get(
