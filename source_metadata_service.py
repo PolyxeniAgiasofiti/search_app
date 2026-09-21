@@ -1,7 +1,7 @@
 import json
 import re
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 from urllib.request import Request, urlopen
 
 
@@ -15,6 +15,45 @@ EUROSTAT_DATAFLOW_ENDPOINTS = [
         "dataflow/ESTAT/{code}?format=JSON&lang=en"
     )
 ]
+
+EUROSTAT_STATISTICS_DATA_ENDPOINT = (
+    "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/"
+    "data/{code}?lang=en"
+)
+
+
+def normalize_eurostat_dataset_code(raw_code):
+
+    if not raw_code:
+        return None
+
+    dataset_code = unquote(
+        str(
+            raw_code
+        )
+    ).split(
+        "?"
+    )[0].split(
+        "#"
+    )[0].strip()
+
+    if "__custom_" in dataset_code.lower():
+        custom_index = dataset_code.lower().index(
+            "__custom_"
+        )
+        dataset_code = dataset_code[
+            :custom_index
+        ]
+
+    dataset_code = dataset_code.strip()
+
+    if not re.fullmatch(
+        r"[A-Za-z0-9_]+",
+        dataset_code
+    ):
+        return None
+
+    return dataset_code.lower()
 
 
 def extract_eurostat_dataset_code(url):
@@ -60,17 +99,61 @@ def extract_eurostat_dataset_code(url):
     ):
         return None
 
-    dataset_code = path_parts[
-        view_index + 1
-    ].upper()
+    return normalize_eurostat_dataset_code(
+        path_parts[
+            view_index + 1
+        ]
+    )
 
-    if not re.fullmatch(
-        r"[A-Z0-9_]+",
-        dataset_code
+
+def extract_eurostat_raw_dataset_code(url):
+
+    parsed = urlparse(
+        url
+    )
+
+    hostname = (
+        parsed.hostname
+        or
+        ""
+    ).lower()
+
+    if hostname != "ec.europa.eu":
+        return None
+
+    path_parts = [
+        part
+        for part
+        in parsed.path.split("/")
+        if part
+    ]
+
+    lowered_parts = [
+        part.lower()
+        for part
+        in path_parts
+    ]
+
+    if "databrowser" not in lowered_parts:
+        return None
+
+    if "view" not in lowered_parts:
+        return None
+
+    view_index = lowered_parts.index(
+        "view"
+    )
+
+    if view_index + 1 >= len(
+        path_parts
     ):
         return None
 
-    return dataset_code
+    return unquote(
+        path_parts[
+            view_index + 1
+        ]
+    )
 
 
 def read_json_url(
@@ -102,10 +185,23 @@ def read_json_url(
             2 * 1024 * 1024
         )
 
-    return json.loads(
-        content.decode(
-            "utf-8-sig"
+        status_code = (
+            response.getcode()
+            if hasattr(
+                response,
+                "getcode"
+            )
+            else
+            None
         )
+
+    return (
+        json.loads(
+            content.decode(
+                "utf-8-sig"
+            )
+        ),
+        status_code
     )
 
 
@@ -180,6 +276,8 @@ def find_text_field(value, field_names):
 
 def find_dataset_node(value, dataset_code):
 
+    dataset_code_upper = dataset_code.upper()
+
     if isinstance(
         value,
         dict
@@ -200,7 +298,7 @@ def find_dataset_node(value, dataset_code):
             )
         ]
 
-        if dataset_code in {
+        if dataset_code_upper in {
             str(identifier).upper()
             for identifier
             in identifiers
@@ -283,7 +381,7 @@ def extract_eurostat_metadata_from_payload(
             "eurostat",
 
         "dataset_code":
-            dataset_code,
+            dataset_code.lower(),
 
         "source_title":
             title,
@@ -308,39 +406,62 @@ def extract_eurostat_metadata_from_payload(
         "available_information":
             [
                 "Eurostat dataset code: "
-                + dataset_code,
+                + dataset_code.lower(),
                 "Official Eurostat dataset title: "
                 + title
             ]
     }
 
 
-def resolve_eurostat_metadata(
-    url,
+def resolve_eurostat_dataflow_metadata(
+    dataset_code,
     urlopen_func=None
 ):
 
-    dataset_code = extract_eurostat_dataset_code(
-        url
-    )
-
-    if not dataset_code:
-        return None
+    attempts = []
 
     for endpoint_template in EUROSTAT_DATAFLOW_ENDPOINTS:
 
         metadata_url = endpoint_template.format(
-            code=dataset_code
+            code=dataset_code.upper()
         )
+
+        attempt = {
+            "method":
+                "sdmx_dataflow",
+
+            "url":
+                metadata_url
+        }
 
         try:
 
-            payload = read_json_url(
+            payload, status_code = read_json_url(
                 metadata_url,
                 urlopen_func=urlopen_func
             )
 
-        except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError):
+            attempt["http_status"] = status_code
+
+        except HTTPError as error:
+
+            attempt["http_status"] = error.code
+            attempt["failure_reason"] = str(
+                error
+            )
+            attempts.append(
+                attempt
+            )
+            continue
+
+        except (URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as error:
+
+            attempt["failure_reason"] = str(
+                error
+            )
+            attempts.append(
+                attempt
+            )
             continue
 
         metadata = extract_eurostat_metadata_from_payload(
@@ -351,7 +472,131 @@ def resolve_eurostat_metadata(
         if metadata:
 
             metadata["metadata_url"] = metadata_url
-            return metadata
+            metadata["metadata_method_attempted"] = "sdmx_dataflow"
+            metadata["metadata_http_status"] = status_code
+            metadata["diagnostics"] = attempts + [
+                attempt
+            ]
+            return metadata, metadata["diagnostics"]
+
+        attempt["failure_reason"] = "No dataset title found in dataflow payload."
+        attempts.append(
+            attempt
+        )
+
+    return None, attempts
+
+
+def resolve_eurostat_statistics_data_metadata(
+    dataset_code,
+    urlopen_func=None
+):
+
+    metadata_url = EUROSTAT_STATISTICS_DATA_ENDPOINT.format(
+        code=dataset_code.upper()
+    )
+
+    attempt = {
+        "method":
+            "statistics_data",
+
+        "url":
+            metadata_url
+    }
+
+    try:
+
+        payload, status_code = read_json_url(
+            metadata_url,
+            urlopen_func=urlopen_func
+        )
+
+        attempt["http_status"] = status_code
+
+    except HTTPError as error:
+
+        attempt["http_status"] = error.code
+        attempt["failure_reason"] = str(
+            error
+        )
+        return None, [
+            attempt
+        ]
+
+    except (URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as error:
+
+        attempt["failure_reason"] = str(
+            error
+        )
+        return None, [
+            attempt
+        ]
+
+    metadata = extract_eurostat_metadata_from_payload(
+        payload,
+        dataset_code
+    )
+
+    if metadata:
+
+        metadata["metadata_url"] = metadata_url
+        metadata["metadata_method_attempted"] = "statistics_data"
+        metadata["metadata_http_status"] = status_code
+        metadata["diagnostics"] = [
+            attempt
+        ]
+        return metadata, [
+            attempt
+        ]
+
+    attempt["failure_reason"] = "No dataset title found in statistics data payload."
+    return None, [
+        attempt
+    ]
+
+
+def resolve_eurostat_metadata(
+    url,
+    urlopen_func=None
+):
+
+    raw_dataset_code = extract_eurostat_raw_dataset_code(
+        url
+    )
+
+    dataset_code = normalize_eurostat_dataset_code(
+        raw_dataset_code
+    )
+
+    if dataset_code is None:
+        return None
+
+    if raw_dataset_code is None:
+        raw_dataset_code = dataset_code
+
+    metadata, attempts = resolve_eurostat_dataflow_metadata(
+        dataset_code,
+        urlopen_func=urlopen_func
+    )
+
+    if metadata:
+        metadata["raw_dataset_code"] = raw_dataset_code
+        metadata["normalized_dataset_code"] = dataset_code
+        return metadata
+
+    fallback_metadata, fallback_attempts = resolve_eurostat_statistics_data_metadata(
+        dataset_code,
+        urlopen_func=urlopen_func
+    )
+    attempts.extend(
+        fallback_attempts
+    )
+
+    if fallback_metadata:
+        fallback_metadata["raw_dataset_code"] = raw_dataset_code
+        fallback_metadata["normalized_dataset_code"] = dataset_code
+        fallback_metadata["diagnostics"] = attempts
+        return fallback_metadata
 
     return {
         "provider":
@@ -360,8 +605,23 @@ def resolve_eurostat_metadata(
         "dataset_code":
             dataset_code,
 
+        "raw_dataset_code":
+            raw_dataset_code,
+
+        "normalized_dataset_code":
+            dataset_code,
+
+        "metadata_method_attempted":
+            "sdmx_dataflow, statistics_data",
+
         "metadata_error":
-            "Official Eurostat metadata could not be resolved."
+            "Official Eurostat metadata could not be resolved.",
+
+        "failure_reason":
+            "All official Eurostat metadata lookup methods failed.",
+
+        "diagnostics":
+            attempts
     }
 
 
@@ -379,4 +639,3 @@ def resolve_source_metadata(
         return eurostat_metadata
 
     return None
-
