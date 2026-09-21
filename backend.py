@@ -746,6 +746,12 @@ def server(input, output, session):
                     ""
                 ),
 
+            "description":
+                analysis.get(
+                    "target_description",
+                    ""
+                ),
+
             "available_information":
                 analysis.get(
                     "available_information",
@@ -756,6 +762,15 @@ def server(input, output, session):
                 analysis.get(
                     "validation_status",
                     "validated"
+                ),
+
+            "validation_reason":
+                analysis.get(
+                    "validation_reason",
+                    analysis.get(
+                        "reason",
+                        ""
+                    )
                 ),
 
             "link_status":
@@ -792,6 +807,21 @@ def server(input, output, session):
                 analysis.get(
                     "time_coverage",
                     "unknown"
+                ),
+
+            "final_url":
+                analysis.get(
+                    "final_url"
+                ),
+
+            "dataset_code":
+                analysis.get(
+                    "dataset_code"
+                ),
+
+            "doi":
+                analysis.get(
+                    "doi"
                 ),
 
             "source_metadata":

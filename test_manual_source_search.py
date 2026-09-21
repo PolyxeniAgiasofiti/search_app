@@ -142,6 +142,9 @@ def test_user_provided_metadata_survives_public_data_search():
                     "geographic_coverage": "unknown",
                     "time_coverage": "unknown",
                     "format": "table",
+                    "dataset_code": "yth_demo_030",
+                    "doi": "10.2908/YTH_DEMO_030",
+                    "validation_reason": "Official Eurostat metadata resolved.",
                     "validation_status": "validated",
                     "source_type": "statistical_authority",
                     "data_access_type": "table"
@@ -162,6 +165,9 @@ def test_user_provided_metadata_survives_public_data_search():
     assert datasets[0]["title"] != "unknown"
     assert datasets[0]["publisher"] == "Eurostat"
     assert datasets[0]["format"] == "table"
+    assert datasets[0]["dataset_code"] == "yth_demo_030"
+    assert datasets[0]["doi"] == "10.2908/YTH_DEMO_030"
+    assert datasets[0]["validation_reason"] == "Official Eurostat metadata resolved."
     assert datasets[0]["source_origin"] == "user_provided"
 
 

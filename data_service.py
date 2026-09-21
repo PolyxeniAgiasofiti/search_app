@@ -79,6 +79,10 @@ def build_user_provided_dataset_candidate(target):
             )
             or
             target.get(
+                "description"
+            )
+            or
+            target.get(
                 "reason",
                 ""
             ),
@@ -122,10 +126,41 @@ def build_user_provided_dataset_candidate(target):
         "final_url":
             fetch_result.get(
                 "final_url"
+            )
+            or
+            target.get(
+                "final_url"
             ),
 
         "source_origin":
             "user_provided",
+
+        "dataset_code":
+            target.get(
+                "dataset_code"
+            ),
+
+        "doi":
+            target.get(
+                "doi"
+            ),
+
+        "available_information":
+            target.get(
+                "available_information",
+                []
+            ),
+
+        "validation_reason":
+            target.get(
+                "validation_reason",
+                ""
+            ),
+
+        "source_metadata":
+            target.get(
+                "source_metadata"
+            ),
 
         "official_source":
             validation_status == "validated",

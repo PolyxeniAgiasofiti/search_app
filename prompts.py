@@ -408,7 +408,7 @@ RULEBOOK
 1. Use only the supplied source evidence.
 2. Do not use outside knowledge.
 3. Do not invent available data, publisher, geography, time coverage,
-   or source title.
+   source title, dataset name, dimensions, or years.
 4. A reachable page is not automatically valid.
 5. The source must be relevant to the Definition.
 6. The source must provide or directly lead to structured data, such as
@@ -418,6 +418,19 @@ RULEBOOK
    methodology-only pages are not valid data target sources.
 8. The proposed Data Target must be grounded only in the supplied source
    evidence.
+9. If provider_metadata contains source_title, publisher, source_type,
+   data_access_type, geographic_coverage, or time_coverage, treat those
+   as authoritative and do not overwrite them.
+10. Never use identifiers, DOI values, XML fragments, or dataset codes as
+    source_title.
+11. Do not use publication, modified, issued, or catalogue dates as
+    time_coverage. Only use actual statistical observation coverage.
+12. Avoid vague target names such as Demographic Structure, Age Data,
+    Relevant Statistics, Population Information, or Official Dataset when
+    the evidence contains a specific measurable indicator.
+13. If the source appears relevant but actual structured data access is
+    not evidenced, use validation_status "needs_review" rather than
+    "validated".
 
 GUARDRAILS
 

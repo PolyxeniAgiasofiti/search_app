@@ -26,7 +26,8 @@ EUROSTAT_STATISTICS_DATA_ENDPOINT = (
 TITLE_NAMES = {
     "title",
     "preflabel",
-    "label"
+    "label",
+    "name"
 }
 
 DESCRIPTION_NAMES = {
@@ -36,6 +37,15 @@ DESCRIPTION_NAMES = {
 RDF_SYNTAX_NAMESPACE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
 
 EXCLUDED_TITLE_NAMES = {
+    "identifier",
+    "notation"
+}
+
+TEMPORAL_NAMES = {
+    "temporal"
+}
+
+IDENTIFIER_NAMES = {
     "identifier",
     "notation"
 }
@@ -323,6 +333,7 @@ def element_text(element):
 def find_xml_text(root, accepted_names, excluded_names=None):
 
     excluded_names = excluded_names or set()
+    first_text = None
 
     for element in root.iter():
 
@@ -346,9 +357,53 @@ def find_xml_text(root, accepted_names, excluded_names=None):
         )
 
         if text:
-            return text
+            language = (
+                element.attrib.get(
+                    "{http://www.w3.org/XML/1998/namespace}lang"
+                )
+                or
+                element.attrib.get(
+                    "lang"
+                )
+                or
+                ""
+            ).lower()
 
-    return None
+            if language == "en":
+                return text
+
+            if first_text is None:
+                first_text = text
+
+    return first_text
+
+
+def find_xml_texts(root, accepted_names):
+
+    values = []
+
+    for element in root.iter():
+
+        if namespace_uri(
+            element.tag
+        ) == RDF_SYNTAX_NAMESPACE:
+            continue
+
+        if local_name(
+            element.tag
+        ) not in accepted_names:
+            continue
+
+        text = element_text(
+            element
+        )
+
+        if text:
+            values.append(
+                text
+            )
+
+    return values
 
 
 def is_identifier_like_title(value, dataset_code):
@@ -386,6 +441,220 @@ def is_identifier_like_title(value, dataset_code):
         return True
 
     return False
+
+
+def extract_doi_from_values(values):
+
+    for value in values:
+
+        cleaned = clean_metadata_text(
+            value
+        )
+
+        if not cleaned:
+            continue
+
+        match = re.search(
+            r"10\.\d{4,9}/[^\s<>]+",
+            cleaned
+        )
+
+        if match:
+            return match.group(
+                0
+            )
+
+    return None
+
+
+def extract_observation_time_coverage(value):
+
+    if not isinstance(
+        value,
+        dict
+    ):
+        return None
+
+    oldest = find_annotation_value(
+        value,
+        "OBS_PERIOD_OVERALL_OLDEST"
+    )
+    latest = find_annotation_value(
+        value,
+        "OBS_PERIOD_OVERALL_LATEST"
+    )
+
+    if not oldest:
+        oldest = find_text_field(
+            value,
+            [
+                "OBS_PERIOD_OVERALL_OLDEST",
+                "obs_period_overall_oldest"
+            ]
+        )
+
+    if not latest:
+        latest = find_text_field(
+            value,
+            [
+                "OBS_PERIOD_OVERALL_LATEST",
+                "obs_period_overall_latest"
+            ]
+        )
+
+    if oldest and latest:
+        return oldest + " to " + latest
+
+    if oldest:
+        return oldest
+
+    if latest:
+        return latest
+
+    return None
+
+
+def find_annotation_value(value, annotation_type):
+
+    if isinstance(
+        value,
+        dict
+    ):
+
+        if str(
+            value.get(
+                "type",
+                ""
+            )
+        ).upper() == annotation_type.upper():
+
+            for field_name in (
+                "title",
+                "text",
+                "value",
+                "date"
+            ):
+
+                field_value = value.get(
+                    field_name
+                )
+
+                if isinstance(
+                    field_value,
+                    str
+                ) and field_value.strip():
+
+                    return clean_metadata_text(
+                        field_value
+                    )
+
+        for child_value in value.values():
+
+            result = find_annotation_value(
+                child_value,
+                annotation_type
+            )
+
+            if result:
+                return result
+
+    elif isinstance(
+        value,
+        list
+    ):
+
+        for item in value:
+
+            result = find_annotation_value(
+                item,
+                annotation_type
+            )
+
+            if result:
+                return result
+
+    return None
+
+
+def find_doi_in_payload(value):
+
+    doi_xml = find_annotation_value(
+        value,
+        "DISSEMINATION_DOI_XML"
+    )
+
+    if doi_xml:
+        return extract_doi_from_values(
+            [
+                doi_xml
+            ]
+        )
+
+    return None
+
+
+def find_geographic_dimension_label(value):
+
+    if not isinstance(
+        value,
+        dict
+    ):
+        return None
+
+    dimension = value.get(
+        "dimension"
+    )
+
+    if not isinstance(
+        dimension,
+        dict
+    ):
+        return None
+
+    geo = dimension.get(
+        "geo"
+    )
+
+    if not isinstance(
+        geo,
+        dict
+    ):
+        return None
+
+    return clean_metadata_text(
+        geo.get(
+            "label"
+        )
+    )
+
+
+def _unused_old_extract_observation_time_coverage(value):
+
+    oldest = find_text_field(
+        value,
+        [
+            "OBS_PERIOD_OVERALL_OLDEST",
+            "obs_period_overall_oldest"
+        ]
+    )
+    latest = find_text_field(
+        value,
+        [
+            "OBS_PERIOD_OVERALL_LATEST",
+            "obs_period_overall_latest"
+        ]
+    )
+
+    if oldest and latest:
+        return oldest + " to " + latest
+
+    if oldest:
+        return oldest
+
+    if latest:
+        return latest
+
+    return None
 
 
 def find_text_field(value, field_names):
@@ -535,16 +804,28 @@ def extract_eurostat_metadata_from_payload(
         payload
     )
 
+    title_fields = [
+        "label",
+        "name",
+        "Name",
+        "title",
+        "Title"
+    ]
+
     title = find_text_field(
         search_root,
-        [
-            "label",
-            "name",
-            "Name",
-            "title",
-            "Title"
-        ]
+        title_fields
     )
+
+    if is_identifier_like_title(
+        title,
+        dataset_code
+    ):
+
+        title = find_text_field(
+            payload,
+            title_fields
+        )
 
     description = find_text_field(
         search_root,
@@ -562,6 +843,15 @@ def extract_eurostat_metadata_from_payload(
     description = clean_metadata_text(
         description
     )
+    time_coverage = extract_observation_time_coverage(
+        payload
+    )
+    geographic_coverage = find_geographic_dimension_label(
+        payload
+    )
+    doi = find_doi_in_payload(
+        payload
+    )
 
     if is_identifier_like_title(
         title,
@@ -569,7 +859,7 @@ def extract_eurostat_metadata_from_payload(
     ):
         return None
 
-    return {
+    metadata = {
         "provider":
             "eurostat",
 
@@ -597,9 +887,13 @@ def extract_eurostat_metadata_from_payload(
             "table",
 
         "time_coverage":
+            time_coverage
+            or
             "unknown",
 
         "geographic_coverage":
+            geographic_coverage
+            or
             "unknown",
 
         "available_information":
@@ -610,6 +904,15 @@ def extract_eurostat_metadata_from_payload(
                 + title
             ]
     }
+
+    if doi:
+        metadata["doi"] = doi
+        metadata["available_information"].append(
+            "DOI: "
+            + doi
+        )
+
+    return metadata
 
 
 def extract_eurostat_metadata_from_xml(
@@ -660,6 +963,17 @@ def extract_eurostat_metadata_from_xml(
         root,
         DESCRIPTION_NAMES
     )
+    temporal = find_xml_text(
+        root,
+        TEMPORAL_NAMES
+    )
+    identifiers = find_xml_texts(
+        root,
+        IDENTIFIER_NAMES
+    )
+    doi = extract_doi_from_values(
+        identifiers
+    )
 
     metadata = {
         "provider":
@@ -689,6 +1003,8 @@ def extract_eurostat_metadata_from_xml(
             "table",
 
         "time_coverage":
+            temporal
+            or
             "unknown",
 
         "geographic_coverage":
@@ -702,6 +1018,13 @@ def extract_eurostat_metadata_from_xml(
                 + title
             ]
     }
+
+    if doi:
+        metadata["doi"] = doi
+        metadata["available_information"].append(
+            "DOI: "
+            + doi
+        )
 
     return metadata
 

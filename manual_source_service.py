@@ -26,11 +26,26 @@ MAX_EVIDENCE_TEXT = 6000
 GENERIC_MANUAL_TITLES = {
     "unknown",
     "age statistics",
+    "age data",
+    "demographic structure",
     "demographic structure data",
+    "relevant demographic information",
+    "relevant statistical dataset",
+    "official dataset",
+    "population information",
     "relevant population dataset",
     "population dataset",
     "user-provided data target",
     "user provided data target"
+}
+GENERIC_DESCRIPTION_MARKERS = {
+    "potentially related",
+    "contributes structured statistical data",
+    "contributes data",
+    "relevant information",
+    "useful statistics",
+    "demographic structure information",
+    "generic demographic structure"
 }
 
 
@@ -752,6 +767,52 @@ def is_generic_manual_title(value):
     return cleaned in GENERIC_MANUAL_TITLES
 
 
+def is_generic_description(value):
+
+    if not value:
+        return True
+
+    cleaned = " ".join(
+        str(
+            value
+        ).strip().lower().split()
+    )
+
+    return any(
+        marker in cleaned
+        for marker
+        in GENERIC_DESCRIPTION_MARKERS
+    )
+
+
+def is_bad_display_value(value):
+
+    if not value:
+        return True
+
+    cleaned = str(
+        value
+    ).strip()
+
+    if cleaned.lower() == "unknown":
+        return True
+
+    if len(
+        cleaned
+    ) > 500:
+        return True
+
+    if "<" in cleaned or ">" in cleaned:
+        return True
+
+    if cleaned.upper().startswith(
+        "10."
+    ):
+        return True
+
+    return False
+
+
 def analyse_user_provided_source(
     definition,
     existing_data_targets,
@@ -947,6 +1008,13 @@ def analyse_user_provided_source(
             "description",
             target_description
         )
+        if is_generic_description(
+            target_description
+        ):
+            target_description = metadata.get(
+                "description",
+                target_description
+            )
         available_information = metadata.get(
             "available_information",
             available_information
@@ -985,6 +1053,13 @@ def analyse_user_provided_source(
             "source_title"
         )
 
+    if accepted and is_bad_display_value(
+        source_title
+    ):
+
+        accepted = False
+        validation_status = "needs_review"
+
     return {
         "accepted":
             accepted,
@@ -1011,6 +1086,12 @@ def analyse_user_provided_source(
             ),
 
         "reason":
+            analysis.get(
+                "reason",
+                ""
+            ),
+
+        "validation_reason":
             analysis.get(
                 "reason",
                 ""
@@ -1048,6 +1129,22 @@ def analyse_user_provided_source(
 
         "source_metadata":
             metadata,
+
+        "dataset_code":
+            metadata.get(
+                "dataset_code"
+            )
+            if metadata
+            else
+            None,
+
+        "doi":
+            metadata.get(
+                "doi"
+            )
+            if metadata
+            else
+            None,
 
         "message":
             analysis.get(

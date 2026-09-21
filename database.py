@@ -173,6 +173,27 @@ def init_database():
             cur.execute(
                 f"""
                 ALTER TABLE {SCHEMA}.datasets
+                ADD COLUMN IF NOT EXISTS dataset_code TEXT;
+                """
+            )
+
+            cur.execute(
+                f"""
+                ALTER TABLE {SCHEMA}.datasets
+                ADD COLUMN IF NOT EXISTS doi TEXT;
+                """
+            )
+
+            cur.execute(
+                f"""
+                ALTER TABLE {SCHEMA}.datasets
+                ADD COLUMN IF NOT EXISTS validation_reason TEXT;
+                """
+            )
+
+            cur.execute(
+                f"""
+                ALTER TABLE {SCHEMA}.datasets
                 ADD COLUMN IF NOT EXISTS retrieval_status TEXT;
                 """
             )
@@ -337,6 +358,9 @@ def save_dataset_candidates(
                         http_status,
                         final_url,
                         source_origin,
+                        dataset_code,
+                        doi,
+                        validation_reason,
                         retrieval_status,
                         last_checked_at,
                         review_status
@@ -344,6 +368,9 @@ def save_dataset_candidates(
 
                     VALUES
                     (
+                        %s,
+                        %s,
+                        %s,
                         %s,
                         %s,
                         %s,
@@ -423,6 +450,18 @@ def save_dataset_candidates(
                         dataset.get(
                             "source_origin",
                             "discovered"
+                        ),
+
+                        dataset.get(
+                            "dataset_code"
+                        ),
+
+                        dataset.get(
+                            "doi"
+                        ),
+
+                        dataset.get(
+                            "validation_reason"
                         )
                     )
                 )
@@ -791,6 +830,9 @@ def get_datasets_for_run(
                     http_status,
                     final_url,
                     source_origin,
+                    dataset_code,
+                    doi,
+                    validation_reason,
                     last_checked_at,
                     retrieval_status,
                     data_access_url,
@@ -864,29 +906,38 @@ def get_datasets_for_run(
             "source_origin":
                 row[14],
 
-            "last_checked_at":
+            "dataset_code":
                 row[15],
 
-            "retrieval_status":
+            "doi":
                 row[16],
 
-            "data_access_url":
+            "validation_reason":
                 row[17],
 
-            "retrieval_message":
+            "last_checked_at":
                 row[18],
 
-            "retrieved_row_count":
+            "retrieval_status":
                 row[19],
 
-            "stored_row_count":
+            "data_access_url":
                 row[20],
 
-            "retrieved_at":
+            "retrieval_message":
                 row[21],
 
+            "retrieved_row_count":
+                row[22],
+
+            "stored_row_count":
+                row[23],
+
+            "retrieved_at":
+                row[24],
+
             "review_status":
-                row[22]
+                row[25]
         }
 
         for row

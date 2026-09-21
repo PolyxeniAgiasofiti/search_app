@@ -525,6 +525,80 @@ def test_eurostat_manual_source_ignores_metadata_issued_as_time_coverage():
     assert result["geographic_coverage"] == "unknown"
 
 
+def test_json_observation_period_maps_to_time_coverage():
+
+    metadata = resolve_eurostat_metadata(
+        "https://ec.europa.eu/eurostat/databrowser/view/"
+        "yth_demo_030/default/table",
+        urlopen_func=lambda request, timeout=10: FakeResponse(
+            request.full_url,
+            json_bytes(
+                {
+                    "dataflows": [
+                        {
+                            "id": "YTH_DEMO_030",
+                            "name": "Estimated average age of young people leaving the parental household by sex",
+                            "OBS_PERIOD_OVERALL_OLDEST": "2000",
+                            "OBS_PERIOD_OVERALL_LATEST": "2023"
+                        }
+                    ]
+                }
+            ),
+            "application/json"
+        )
+    )
+
+    assert metadata["time_coverage"] == "2000 to 2023"
+
+
+def test_bad_ai_source_title_forces_needs_review():
+
+    def fake_urlopen(request, timeout=10):
+        return FakeResponse(
+            request.full_url,
+            b"metric,value\nage,42\n",
+            "text/csv"
+        )
+
+
+    def fake_analyzer(definition, targets, evidence):
+        return {
+            "relevant": True,
+            "useful_data_source": True,
+            "validation_status": "validated",
+            "reason": "Structured CSV.",
+            "proposed_data_target": "Age metric",
+            "target_description": "Age metric data.",
+            "available_information": ["metric", "value"],
+            "source_title": "<adms:identifier>10.2908/BAD</adms:identifier>",
+            "publisher": "Example",
+            "geographic_coverage": "unknown",
+            "time_coverage": "unknown",
+            "source_type": "public_research",
+            "data_access_type": "csv"
+        }
+
+
+    original_getaddrinfo = manual_source_service.socket.getaddrinfo
+
+    try:
+        manual_source_service.socket.getaddrinfo = lambda *_: PUBLIC_TEST_ADDRESS
+
+        result = analyse_user_provided_source(
+            "gerontocracy definition",
+            [],
+            "https://example.org/data.csv",
+            analyzer_func=fake_analyzer,
+            urlopen_func=fake_urlopen
+        )
+
+    finally:
+        manual_source_service.socket.getaddrinfo = original_getaddrinfo
+
+    assert result["accepted"] is False
+    assert result["validation_status"] == "needs_review"
+
+
 def test_eurostat_manual_source_needs_review_when_metadata_fails():
 
     eurostat_url = (
@@ -591,5 +665,7 @@ if __name__ == "__main__":
     test_eurostat_metadata_all_methods_fail_with_diagnostics()
     test_eurostat_rdf_xml_metadata_uses_semantic_title_and_description()
     test_eurostat_manual_source_ignores_metadata_issued_as_time_coverage()
+    test_json_observation_period_maps_to_time_coverage()
+    test_bad_ai_source_title_forces_needs_review()
     test_eurostat_manual_source_needs_review_when_metadata_fails()
     print("manual source service tests passed")
