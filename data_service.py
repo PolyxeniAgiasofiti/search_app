@@ -3,7 +3,133 @@ import json
 from google import genai
 
 from search_service import search_web
+from manual_source_service import fetch_source
 from validation import validate_dataset_candidate
+
+
+def normalise_url_for_dedup(url):
+
+    if not url:
+        return ""
+
+    return url.strip().rstrip("/")
+
+
+def build_user_provided_dataset_candidate(target):
+
+    source_url = target.get(
+        "provided_source_url"
+    )
+
+    if not source_url:
+        return None
+
+    fetch_result = fetch_source(
+        source_url
+    )
+
+    link_status = fetch_result.get(
+        "status",
+        "error"
+    )
+
+    validation_status = target.get(
+        "validation_status",
+        "needs_review"
+    )
+
+    if link_status == "restricted":
+        validation_status = "needs_review"
+
+    elif link_status in {
+        "broken",
+        "error"
+    }:
+        validation_status = "invalid"
+
+    return {
+        "data_target":
+            target.get(
+                "name",
+                "User-provided data target"
+            ),
+
+        "title":
+            target.get(
+                "source_title"
+            )
+            or
+            target.get(
+                "name",
+                "User-provided source"
+            ),
+
+        "publisher":
+            target.get(
+                "publisher",
+                "unknown"
+            ),
+
+        "source_url":
+            source_url,
+
+        "description":
+            target.get(
+                "source_description"
+            )
+            or
+            target.get(
+                "reason",
+                ""
+            ),
+
+        "geographic_coverage":
+            target.get(
+                "geographic_coverage",
+                "unknown"
+            ),
+
+        "time_coverage":
+            target.get(
+                "time_coverage",
+                "unknown"
+            ),
+
+        "format":
+            target.get(
+                "data_access_type",
+                "unknown"
+            ),
+
+        "source_type":
+            target.get(
+                "source_type",
+                "unknown"
+            ),
+
+        "validation_status":
+            validation_status,
+
+        "link_status":
+            link_status,
+
+        "http_status":
+            None,
+
+        "final_url":
+            fetch_result.get(
+                "final_url"
+            ),
+
+        "source_origin":
+            "user_provided",
+
+        "official_source":
+            validation_status == "validated",
+
+        "actual_data_access":
+            validation_status == "validated"
+    }
 
 
 # ---------------------------------------------------------
@@ -395,6 +521,41 @@ def search_public_datasets(
 
     for target in data_targets:
 
+        if target.get(
+            "origin"
+        ) == "user_provided":
+
+            manual_dataset = build_user_provided_dataset_candidate(
+                target
+            )
+
+            if manual_dataset:
+
+                manual_url_key = normalise_url_for_dedup(
+                    manual_dataset.get(
+                        "final_url"
+                    )
+                    or
+                    manual_dataset.get(
+                        "source_url"
+                    )
+                )
+
+                if manual_url_key:
+                    seen_urls.add(
+                        manual_url_key
+                    )
+
+                seen_urls.add(
+                    manual_dataset.get(
+                        "source_url"
+                    )
+                )
+
+                all_datasets.append(
+                    manual_dataset
+                )
+
         print(
             "\n------------------------------------"
         )
@@ -528,8 +689,25 @@ def search_public_datasets(
                 "source_url"
             )
 
-            seen_urls.add(
+            url_key = normalise_url_for_dedup(
+                accepted_dataset.get(
+                    "final_url"
+                )
+                or
                 url
+            )
+
+            if url_key in seen_urls:
+
+                print(
+                    "REJECTED DUPLICATE URL:",
+                    url
+                )
+
+                continue
+
+            seen_urls.add(
+                url_key
             )
 
 

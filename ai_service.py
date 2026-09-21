@@ -3,7 +3,8 @@ import json
 from google import genai
 from prompts import (
     build_topic_analysis_prompt,
-    build_revision_prompt
+    build_revision_prompt,
+    build_manual_source_analysis_prompt
 )
 
 
@@ -99,3 +100,29 @@ def revise_topic_analysis(
 
 
     return result
+
+
+def analyze_manual_source(
+    definition,
+    existing_data_targets,
+    source_evidence
+):
+
+    prompt = build_manual_source_analysis_prompt(
+        definition,
+        existing_data_targets,
+        source_evidence
+    )
+
+    interaction = client.interactions.create(
+        model="gemini-3.5-flash-lite",
+        input=prompt
+    )
+
+    response_text = clean_json_response(
+        interaction.output_text
+    )
+
+    return json.loads(
+        response_text
+    )

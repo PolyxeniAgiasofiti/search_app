@@ -17,6 +17,7 @@ from database import (
 
 from data_service import search_public_datasets
 from ingestion_service import retrieve_dataset
+from manual_source_service import analyse_user_provided_source
 
 
 # ---------------------------------------------------------
@@ -44,6 +45,8 @@ def server(input, output, session):
 
     definition_message = reactive.Value(None)
     data_message = reactive.Value(None)
+    manual_source_message = reactive.Value(None)
+    manual_target_clicks = reactive.Value({})
 
     definition_approved = reactive.Value(False)
     data_approved = reactive.Value(False)
@@ -92,6 +95,8 @@ def server(input, output, session):
 
         definition_message.set(None)
         data_message.set(None)
+        manual_source_message.set(None)
+        manual_target_clicks.set({})
 
         definition_approved.set(False)
         data_approved.set(False)
@@ -147,25 +152,86 @@ def server(input, output, session):
         # BUILD DATA TARGET CARDS
         data_cards = []
 
-        for item in result.get("data_needed", []):
+        for index, item in enumerate(result.get("data_needed", [])):
+
+            card_elements = [
+
+                ui.tags.h4(
+                    item.get(
+                        "name",
+                        "Data target"
+                    )
+                ),
+
+                ui.tags.p(
+                    item.get(
+                        "reason",
+                        ""
+                    )
+                )
+            ]
+
+            if item.get(
+                "origin"
+            ) == "user_provided":
+
+                if item.get(
+                    "source_title"
+                ):
+
+                    card_elements.append(
+                        ui.tags.p(
+                            ui.tags.strong(
+                                "Source: "
+                            ),
+                            item.get(
+                                "source_title"
+                            )
+                        )
+                    )
+
+                if item.get(
+                    "publisher"
+                ):
+
+                    card_elements.append(
+                        ui.tags.p(
+                            ui.tags.strong(
+                                "Publisher: "
+                            ),
+                            item.get(
+                                "publisher"
+                            )
+                        )
+                    )
+
+                if item.get(
+                    "provided_source_url"
+                ):
+
+                    card_elements.append(
+                        ui.tags.a(
+                            "Open provided URL",
+                            href=item.get(
+                                "provided_source_url"
+                            ),
+                            target="_blank",
+                            class_="dataset-link"
+                        )
+                    )
+
+                card_elements.append(
+                    ui.input_action_button(
+                        f"remove_manual_target_{index}",
+                        "Remove manual target",
+                        class_="btn-secondary confirm-button"
+                    )
+                )
 
             data_cards.append(
 
                 ui.div(
-
-                    ui.tags.h4(
-                        item.get(
-                            "name",
-                            "Data target"
-                        )
-                    ),
-
-                    ui.tags.p(
-                        item.get(
-                            "reason",
-                            ""
-                        )
-                    ),
+                    *card_elements,
 
                     class_="data-card"
                 )
@@ -275,6 +341,31 @@ def server(input, output, session):
                     rows=4,
                     width="100%"
                 ),
+
+                ui.tags.hr(),
+
+                ui.tags.h4(
+                    "Add Data Target from URL"
+                ),
+
+                ui.input_text(
+                    "manual_source_url",
+                    label="Source URL",
+                    placeholder="https://example.org/data.csv",
+                    width="100%"
+                ),
+
+                ui.input_action_button(
+                    "add_manual_source",
+                    "Add Data Target",
+                    class_="btn-secondary confirm-button"
+                ),
+
+                ui.output_ui(
+                    "manual_source_status"
+                ),
+
+                ui.tags.hr(),
 
                 ui.input_action_button(
                     "confirm_data",
@@ -533,6 +624,275 @@ def server(input, output, session):
 
 
     # -----------------------------------------------------
+    # MANUAL SOURCE URL
+    # -----------------------------------------------------
+
+    @reactive.effect
+    @reactive.event(input.add_manual_source)
+    def handle_manual_source_addition():
+
+        url = input.manual_source_url()
+
+        if not url or not url.strip():
+
+            manual_source_message.set(
+                "Please paste a source URL first."
+            )
+
+            return
+
+        current_result = revised_result.get()
+
+        if current_result is None:
+            current_result = search_request()
+
+        if not current_result:
+
+            manual_source_message.set(
+                "No current analysis is available yet."
+            )
+
+            return
+
+        manual_source_message.set(
+            "Inspecting source and checking whether it fits the approved topic..."
+        )
+
+        try:
+
+            analysis = analyse_user_provided_source(
+                definition=current_result.get(
+                    "definition",
+                    ""
+                ),
+                existing_data_targets=current_result.get(
+                    "data_needed",
+                    []
+                ),
+                url=url.strip()
+            )
+
+        except Exception as error:
+
+            manual_source_message.set(
+                "The source could not be inspected safely: "
+                + str(error)
+            )
+
+            return
+
+        if not analysis.get(
+            "accepted"
+        ):
+
+            manual_source_message.set(
+                "Source was not added. "
+                + analysis.get(
+                    "message",
+                    analysis.get(
+                        "reason",
+                        "It was not validated as a useful data source."
+                    )
+                )
+            )
+
+            return
+
+        manual_target = {
+            "name":
+                analysis.get(
+                    "data_target"
+                )
+                or
+                analysis.get(
+                    "source_title",
+                    "User-provided data target"
+                ),
+
+            "reason":
+                analysis.get(
+                    "target_description"
+                )
+                or
+                analysis.get(
+                    "reason",
+                    ""
+                ),
+
+            "origin":
+                "user_provided",
+
+            "provided_source_url":
+                analysis.get(
+                    "source_url",
+                    url.strip()
+                ),
+
+            "source_title":
+                analysis.get(
+                    "source_title",
+                    "unknown"
+                ),
+
+            "publisher":
+                analysis.get(
+                    "publisher",
+                    "unknown"
+                ),
+
+            "source_description":
+                analysis.get(
+                    "target_description",
+                    ""
+                ),
+
+            "available_information":
+                analysis.get(
+                    "available_information",
+                    []
+                ),
+
+            "validation_status":
+                analysis.get(
+                    "validation_status",
+                    "validated"
+                ),
+
+            "link_status":
+                analysis.get(
+                    "link_status",
+                    "reachable"
+                ),
+
+            "source_type":
+                analysis.get(
+                    "source_type",
+                    "unknown"
+                ),
+
+            "data_access_type":
+                analysis.get(
+                    "data_access_type",
+                    "unknown"
+                ),
+
+            "geographic_coverage":
+                analysis.get(
+                    "geographic_coverage",
+                    "unknown"
+                ),
+
+            "time_coverage":
+                analysis.get(
+                    "time_coverage",
+                    "unknown"
+                )
+        }
+
+        updated_result = current_result.copy()
+        updated_targets = list(
+            updated_result.get(
+                "data_needed",
+                []
+            )
+        )
+        updated_targets.append(
+            manual_target
+        )
+        updated_result["data_needed"] = updated_targets
+
+        revised_result.set(
+            updated_result
+        )
+        data_approved.set(False)
+        research_run_id.set(None)
+        research_run_save_error.set(None)
+
+        manual_source_message.set(
+            "Source added as a user-provided data target. "
+            "Please approve the data targets again."
+        )
+
+
+    @reactive.effect
+    def handle_manual_target_removal():
+
+        result = revised_result.get()
+
+        if result is None:
+            result = search_request()
+
+        if not result:
+            return
+
+        previous_clicks = manual_target_clicks.get().copy()
+        changed = False
+
+        for index, item in enumerate(
+            result.get(
+                "data_needed",
+                []
+            )
+        ):
+
+            if item.get(
+                "origin"
+            ) != "user_provided":
+                continue
+
+            input_id = f"remove_manual_target_{index}"
+
+            try:
+                clicks = input[input_id]()
+            except Exception:
+                continue
+
+            previous = previous_clicks.get(
+                input_id,
+                0
+            )
+
+            if clicks and clicks > previous:
+
+                updated_targets = [
+                    target
+                    for target_index, target
+                    in enumerate(
+                        result.get(
+                            "data_needed",
+                            []
+                        )
+                    )
+                    if target_index != index
+                ]
+
+                updated_result = result.copy()
+                updated_result["data_needed"] = updated_targets
+
+                revised_result.set(
+                    updated_result
+                )
+                data_approved.set(False)
+                research_run_id.set(None)
+                research_run_save_error.set(None)
+
+                manual_source_message.set(
+                    "Manual data target removed. Please approve the data targets again."
+                )
+
+                previous_clicks[input_id] = clicks
+                changed = True
+                break
+
+            previous_clicks[input_id] = clicks or 0
+
+        if changed or previous_clicks != manual_target_clicks.get():
+            manual_target_clicks.set(
+                previous_clicks
+            )
+
+
+    # -----------------------------------------------------
     # DEFINITION STATUS
     # -----------------------------------------------------
 
@@ -560,6 +920,21 @@ def server(input, output, session):
     def data_status():
 
         message = data_message.get()
+
+        if not message:
+            return None
+
+        return ui.div(
+            message,
+            class_="review-message"
+        )
+
+
+    @output
+    @render.ui
+    def manual_source_status():
+
+        message = manual_source_message.get()
 
         if not message:
             return None
@@ -1389,6 +1764,23 @@ def server(input, output, session):
 
                 ui.tags.p(
                     ui.tags.strong(
+                        "Origin: "
+                    ),
+
+                    (
+                        dataset.get(
+                            "source_origin"
+                        )
+                        or
+                        "discovered"
+                    ).replace(
+                        "_",
+                        " "
+                    ).title()
+                ),
+
+                ui.tags.p(
+                    ui.tags.strong(
                         "Validation: "
                     ),
 
@@ -1533,6 +1925,10 @@ def server(input, output, session):
                 ) == "approved"
                 and
                 dataset_id is not None
+                and
+                dataset.get(
+                    "validation_status"
+                ) != "invalid"
             ):
 
                 card_elements.append(
@@ -1544,7 +1940,13 @@ def server(input, output, session):
                     )
                 )
 
-            if dataset_id is not None:
+            if (
+                dataset_id is not None
+                and
+                dataset.get(
+                    "validation_status"
+                ) != "invalid"
+            ):
 
                 card_elements.append(
 

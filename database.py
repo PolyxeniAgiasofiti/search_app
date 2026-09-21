@@ -166,6 +166,13 @@ def init_database():
             cur.execute(
                 f"""
                 ALTER TABLE {SCHEMA}.datasets
+                ADD COLUMN IF NOT EXISTS source_origin TEXT DEFAULT 'discovered';
+                """
+            )
+
+            cur.execute(
+                f"""
+                ALTER TABLE {SCHEMA}.datasets
                 ADD COLUMN IF NOT EXISTS retrieval_status TEXT;
                 """
             )
@@ -329,6 +336,7 @@ def save_dataset_candidates(
                         link_status,
                         http_status,
                         final_url,
+                        source_origin,
                         retrieval_status,
                         last_checked_at,
                         review_status
@@ -336,6 +344,7 @@ def save_dataset_candidates(
 
                     VALUES
                     (
+                        %s,
                         %s,
                         %s,
                         %s,
@@ -409,6 +418,11 @@ def save_dataset_candidates(
 
                         dataset.get(
                             "final_url"
+                        ),
+
+                        dataset.get(
+                            "source_origin",
+                            "discovered"
                         )
                     )
                 )
@@ -776,6 +790,7 @@ def get_datasets_for_run(
                     link_status,
                     http_status,
                     final_url,
+                    source_origin,
                     last_checked_at,
                     retrieval_status,
                     data_access_url,
@@ -846,29 +861,32 @@ def get_datasets_for_run(
             "final_url":
                 row[13],
 
-            "last_checked_at":
+            "source_origin":
                 row[14],
 
-            "retrieval_status":
+            "last_checked_at":
                 row[15],
 
-            "data_access_url":
+            "retrieval_status":
                 row[16],
 
-            "retrieval_message":
+            "data_access_url":
                 row[17],
 
-            "retrieved_row_count":
+            "retrieval_message":
                 row[18],
 
-            "stored_row_count":
+            "retrieved_row_count":
                 row[19],
 
-            "retrieved_at":
+            "stored_row_count":
                 row[20],
 
+            "retrieved_at":
+                row[21],
+
             "review_status":
-                row[21]
+                row[22]
         }
 
         for row
