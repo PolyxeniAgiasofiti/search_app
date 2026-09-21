@@ -4,6 +4,7 @@ import manual_source_service
 
 from manual_source_service import analyse_user_provided_source, validate_safe_url
 from source_metadata_service import (
+    extract_eurostat_metadata_from_xml,
     extract_eurostat_dataset_code,
     normalize_eurostat_dataset_code,
     resolve_eurostat_metadata
@@ -397,6 +398,133 @@ def test_eurostat_metadata_all_methods_fail_with_diagnostics():
     assert len(metadata["diagnostics"]) >= 3
 
 
+def test_eurostat_rdf_xml_metadata_uses_semantic_title_and_description():
+
+    xml_payload = b"""
+    <rdf:RDF
+        xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+        xmlns:dct="http://purl.org/dc/terms/"
+        xmlns:adms="http://www.w3.org/ns/adms#"
+        xmlns:skos="http://www.w3.org/2004/02/skos/core#">
+      <rdf:Description>
+        <adms:identifier>
+          <skos:notation>10.2908/YTH_DEMO_030</skos:notation>
+        </adms:identifier>
+        <dct:title>
+          Estimated average age of young people leaving the parental household by sex
+        </dct:title>
+        <dct:description>
+          &lt;p&gt;The indicator represents the age at which 50 % of the population
+          no longer live in a household with their parent(s) (Source: EU-LFS).&lt;/p&gt;
+        </dct:description>
+        <dct:issued>2023-01-19</dct:issued>
+      </rdf:Description>
+    </rdf:RDF>
+    """
+
+    metadata = extract_eurostat_metadata_from_xml(
+        xml_payload,
+        "yth_demo_030"
+    )
+
+    assert metadata["source_title"] == (
+        "Estimated average age of young people leaving "
+        "the parental household by sex"
+    )
+    assert metadata["source_title"] != "10.2908/YTH_DEMO_030"
+    assert metadata["description"] == (
+        "The indicator represents the age at which 50 % of the population "
+        "no longer live in a household with their parent(s) (Source: EU-LFS)."
+    )
+    assert metadata["time_coverage"] == "unknown"
+    assert metadata["geographic_coverage"] == "unknown"
+
+
+def test_eurostat_manual_source_ignores_metadata_issued_as_time_coverage():
+
+    eurostat_url = (
+        "https://ec.europa.eu/eurostat/databrowser/view/"
+        "yth_demo_030__custom_22532746/default/table"
+    )
+
+    xml_payload = b"""
+    <rdf:RDF
+        xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+        xmlns:dct="http://purl.org/dc/terms/"
+        xmlns:adms="http://www.w3.org/ns/adms#">
+      <rdf:Description>
+        <adms:identifier>10.2908/YTH_DEMO_030</adms:identifier>
+        <dct:title>Estimated average age of young people leaving the parental household by sex</dct:title>
+        <dct:description>&lt;p&gt;The indicator represents the age at which 50 % of the population no longer live in a household with their parent(s).&lt;/p&gt;</dct:description>
+        <dct:issued>2023-01-19</dct:issued>
+      </rdf:Description>
+    </rdf:RDF>
+    """
+
+
+    def fake_urlopen(request, timeout=10):
+
+        if "/api/dissemination/" in request.full_url:
+            return FakeResponse(
+                request.full_url,
+                xml_payload,
+                "application/rdf+xml"
+            )
+
+        return FakeResponse(
+            request.full_url,
+            b"<html><title>Eurostat Data Browser</title></html>",
+            "text/html"
+        )
+
+
+    def fake_analyzer(definition, targets, evidence):
+        return {
+            "relevant": True,
+            "useful_data_source": True,
+            "validation_status": "validated",
+            "reason": "Relevant official Eurostat data.",
+            "proposed_data_target": "Demographic Structure",
+            "target_description": "Generic demographic structure.",
+            "available_information": [],
+            "source_title": "unknown",
+            "publisher": "Eurostat",
+            "geographic_coverage": "Europe",
+            "time_coverage": "2023-01-19",
+            "source_type": "statistical_authority",
+            "data_access_type": "table"
+        }
+
+
+    original_getaddrinfo = manual_source_service.socket.getaddrinfo
+
+    try:
+        manual_source_service.socket.getaddrinfo = lambda *_: PUBLIC_TEST_ADDRESS
+
+        result = analyse_user_provided_source(
+            "gerontocracy definition",
+            [],
+            eurostat_url,
+            analyzer_func=fake_analyzer,
+            urlopen_func=fake_urlopen
+        )
+
+    finally:
+        manual_source_service.socket.getaddrinfo = original_getaddrinfo
+
+    assert result["accepted"] is True
+    assert result["source_title"] == (
+        "Estimated average age of young people leaving "
+        "the parental household by sex"
+    )
+    assert result["target_description"] == (
+        "The indicator represents the age at which 50 % of the population "
+        "no longer live in a household with their parent(s)."
+    )
+    assert result["time_coverage"] == "unknown"
+    assert result["geographic_coverage"] == "unknown"
+
+
 def test_eurostat_manual_source_needs_review_when_metadata_fails():
 
     eurostat_url = (
@@ -461,5 +589,7 @@ if __name__ == "__main__":
     test_eurostat_custom_code_normalization()
     test_eurostat_metadata_fallback_succeeds_after_dataflow_failure()
     test_eurostat_metadata_all_methods_fail_with_diagnostics()
+    test_eurostat_rdf_xml_metadata_uses_semantic_title_and_description()
+    test_eurostat_manual_source_ignores_metadata_issued_as_time_coverage()
     test_eurostat_manual_source_needs_review_when_metadata_fails()
     print("manual source service tests passed")

@@ -923,6 +923,14 @@ def analyse_user_provided_source(
         "available_information",
         []
     )
+    geographic_coverage = analysis.get(
+        "geographic_coverage",
+        "unknown"
+    )
+    time_coverage = analysis.get(
+        "time_coverage",
+        "unknown"
+    )
 
     if metadata and metadata.get(
         "source_title"
@@ -942,6 +950,14 @@ def analyse_user_provided_source(
         available_information = metadata.get(
             "available_information",
             available_information
+        )
+        geographic_coverage = metadata.get(
+            "geographic_coverage",
+            "unknown"
+        )
+        time_coverage = metadata.get(
+            "time_coverage",
+            "unknown"
         )
         source_type = normalise_source_type(
             metadata.get(
@@ -1016,16 +1032,10 @@ def analyse_user_provided_source(
             publisher,
 
         "geographic_coverage":
-            analysis.get(
-                "geographic_coverage",
-                "unknown"
-            ),
+            geographic_coverage,
 
         "time_coverage":
-            analysis.get(
-                "time_coverage",
-                "unknown"
-            ),
+            time_coverage,
 
         "source_type":
             source_type,

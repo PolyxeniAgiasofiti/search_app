@@ -1,8 +1,10 @@
 import json
 import re
+from html import unescape
 from urllib.error import HTTPError, URLError
 from urllib.parse import unquote, urlparse
 from urllib.request import Request, urlopen
+from xml.etree import ElementTree
 
 
 EUROSTAT_DATAFLOW_ENDPOINTS = [
@@ -20,6 +22,23 @@ EUROSTAT_STATISTICS_DATA_ENDPOINT = (
     "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/"
     "data/{code}?lang=en"
 )
+
+TITLE_NAMES = {
+    "title",
+    "preflabel",
+    "label"
+}
+
+DESCRIPTION_NAMES = {
+    "description"
+}
+
+RDF_SYNTAX_NAMESPACE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+
+EXCLUDED_TITLE_NAMES = {
+    "identifier",
+    "notation"
+}
 
 
 def normalize_eurostat_dataset_code(raw_code):
@@ -156,7 +175,7 @@ def extract_eurostat_raw_dataset_code(url):
     )
 
 
-def read_json_url(
+def read_response_url(
     url,
     timeout=10,
     urlopen_func=None
@@ -172,7 +191,7 @@ def read_json_url(
                 "DataObservatory/1.0",
 
             "Accept":
-                "application/json"
+                "application/json, application/xml, text/xml"
         }
     )
 
@@ -196,6 +215,24 @@ def read_json_url(
         )
 
     return (
+        content,
+        status_code
+    )
+
+
+def read_json_url(
+    url,
+    timeout=10,
+    urlopen_func=None
+):
+
+    content, status_code = read_response_url(
+        url,
+        timeout=timeout,
+        urlopen_func=urlopen_func
+    )
+
+    return (
         json.loads(
             content.decode(
                 "utf-8-sig"
@@ -203,6 +240,152 @@ def read_json_url(
         ),
         status_code
     )
+
+
+def clean_metadata_text(value):
+
+    if not value:
+        return None
+
+    text = unescape(
+        str(
+            value
+        )
+    )
+
+    text = re.sub(
+        r"<\s*br\s*/?\s*>",
+        " ",
+        text,
+        flags=re.IGNORECASE
+    )
+    text = re.sub(
+        r"<[^>]+>",
+        " ",
+        text
+    )
+    text = " ".join(
+        text.split()
+    )
+
+    return text or None
+
+
+def local_name(tag):
+
+    if "}" in tag:
+        return tag.rsplit(
+            "}",
+            1
+        )[1].lower()
+
+    if ":" in tag:
+        return tag.rsplit(
+            ":",
+            1
+        )[1].lower()
+
+    return tag.lower()
+
+
+def namespace_uri(tag):
+
+    if tag.startswith(
+        "{"
+    ) and "}" in tag:
+
+        return tag[1:].split(
+            "}",
+            1
+        )[0]
+
+    return ""
+
+
+def element_text(element):
+
+    direct_text = clean_metadata_text(
+        element.text
+    )
+
+    if direct_text:
+        return direct_text
+
+    return clean_metadata_text(
+        " ".join(
+            text
+            for text
+            in element.itertext()
+        )
+    )
+
+
+def find_xml_text(root, accepted_names, excluded_names=None):
+
+    excluded_names = excluded_names or set()
+
+    for element in root.iter():
+
+        name = local_name(
+            element.tag
+        )
+
+        if namespace_uri(
+            element.tag
+        ) == RDF_SYNTAX_NAMESPACE:
+            continue
+
+        if name in excluded_names:
+            continue
+
+        if name not in accepted_names:
+            continue
+
+        text = element_text(
+            element
+        )
+
+        if text:
+            return text
+
+    return None
+
+
+def is_identifier_like_title(value, dataset_code):
+
+    if not value:
+        return True
+
+    cleaned = clean_metadata_text(
+        value
+    )
+
+    if not cleaned:
+        return True
+
+    compact = cleaned.upper().replace(
+        " ",
+        ""
+    )
+    code = dataset_code.upper()
+
+    if compact == code:
+        return True
+
+    if compact.endswith(
+        "/" + code
+    ):
+        return True
+
+    if compact.startswith(
+        "10."
+    ):
+        return True
+
+    if "<" in cleaned or ">" in cleaned:
+        return True
+
+    return False
 
 
 def find_text_field(value, field_names):
@@ -373,7 +556,17 @@ def extract_eurostat_metadata_from_payload(
         ]
     )
 
-    if not title:
+    title = clean_metadata_text(
+        title
+    )
+    description = clean_metadata_text(
+        description
+    )
+
+    if is_identifier_like_title(
+        title,
+        dataset_code
+    ):
         return None
 
     return {
@@ -403,6 +596,12 @@ def extract_eurostat_metadata_from_payload(
         "format":
             "table",
 
+        "time_coverage":
+            "unknown",
+
+        "geographic_coverage":
+            "unknown",
+
         "available_information":
             [
                 "Eurostat dataset code: "
@@ -411,6 +610,126 @@ def extract_eurostat_metadata_from_payload(
                 + title
             ]
     }
+
+
+def extract_eurostat_metadata_from_xml(
+    content,
+    dataset_code
+):
+
+    try:
+        root = ElementTree.fromstring(
+            content
+        )
+    except ElementTree.ParseError:
+        return None
+
+    title = find_xml_text(
+        root,
+        {
+            "title"
+        },
+        EXCLUDED_TITLE_NAMES
+    )
+
+    if not title:
+        title = find_xml_text(
+            root,
+            {
+                "preflabel"
+            },
+            EXCLUDED_TITLE_NAMES
+        )
+
+    if not title:
+        title = find_xml_text(
+            root,
+            {
+                "label"
+            },
+            EXCLUDED_TITLE_NAMES
+        )
+
+    if is_identifier_like_title(
+        title,
+        dataset_code
+    ):
+        return None
+
+    description = find_xml_text(
+        root,
+        DESCRIPTION_NAMES
+    )
+
+    metadata = {
+        "provider":
+            "eurostat",
+
+        "dataset_code":
+            dataset_code.lower(),
+
+        "source_title":
+            title,
+
+        "publisher":
+            "Eurostat",
+
+        "description":
+            description
+            or
+            title,
+
+        "source_type":
+            "statistical_authority",
+
+        "data_access_type":
+            "table",
+
+        "format":
+            "table",
+
+        "time_coverage":
+            "unknown",
+
+        "geographic_coverage":
+            "unknown",
+
+        "available_information":
+            [
+                "Eurostat dataset code: "
+                + dataset_code.lower(),
+                "Official Eurostat dataset title: "
+                + title
+            ]
+    }
+
+    return metadata
+
+
+def extract_eurostat_metadata_from_content(
+    content,
+    dataset_code
+):
+
+    try:
+        payload = json.loads(
+            content.decode(
+                "utf-8-sig"
+            )
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        payload = None
+
+    if payload is not None:
+        return extract_eurostat_metadata_from_payload(
+            payload,
+            dataset_code
+        )
+
+    return extract_eurostat_metadata_from_xml(
+        content,
+        dataset_code
+    )
 
 
 def resolve_eurostat_dataflow_metadata(
@@ -436,7 +755,7 @@ def resolve_eurostat_dataflow_metadata(
 
         try:
 
-            payload, status_code = read_json_url(
+            content, status_code = read_response_url(
                 metadata_url,
                 urlopen_func=urlopen_func
             )
@@ -454,7 +773,7 @@ def resolve_eurostat_dataflow_metadata(
             )
             continue
 
-        except (URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as error:
+        except (URLError, TimeoutError, OSError, ValueError) as error:
 
             attempt["failure_reason"] = str(
                 error
@@ -464,8 +783,8 @@ def resolve_eurostat_dataflow_metadata(
             )
             continue
 
-        metadata = extract_eurostat_metadata_from_payload(
-            payload,
+        metadata = extract_eurostat_metadata_from_content(
+            content,
             dataset_code
         )
 
@@ -506,7 +825,7 @@ def resolve_eurostat_statistics_data_metadata(
 
     try:
 
-        payload, status_code = read_json_url(
+        content, status_code = read_response_url(
             metadata_url,
             urlopen_func=urlopen_func
         )
@@ -523,7 +842,7 @@ def resolve_eurostat_statistics_data_metadata(
             attempt
         ]
 
-    except (URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as error:
+    except (URLError, TimeoutError, OSError, ValueError) as error:
 
         attempt["failure_reason"] = str(
             error
@@ -532,8 +851,8 @@ def resolve_eurostat_statistics_data_metadata(
             attempt
         ]
 
-    metadata = extract_eurostat_metadata_from_payload(
-        payload,
+    metadata = extract_eurostat_metadata_from_content(
+        content,
         dataset_code
     )
 
