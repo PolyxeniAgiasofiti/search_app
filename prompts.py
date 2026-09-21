@@ -429,7 +429,7 @@ EXAMPLE OUTPUT
 
 Return only valid JSON in exactly this structure:
 
-{
+{{
     "relevant": true,
     "useful_data_source": true,
     "validation_status": "validated",
@@ -445,7 +445,7 @@ Return only valid JSON in exactly this structure:
     "time_coverage": "Coverage from evidence or unknown",
     "source_type": "government",
     "data_access_type": "dataset"
-}
+}}
 
 Allowed validation_status values:
 validated
