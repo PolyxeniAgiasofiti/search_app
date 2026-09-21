@@ -194,6 +194,34 @@ def init_database():
             cur.execute(
                 f"""
                 ALTER TABLE {SCHEMA}.datasets
+                ADD COLUMN IF NOT EXISTS is_custom_view BOOLEAN DEFAULT FALSE;
+                """
+            )
+
+            cur.execute(
+                f"""
+                ALTER TABLE {SCHEMA}.datasets
+                ADD COLUMN IF NOT EXISTS bookmark_id TEXT;
+                """
+            )
+
+            cur.execute(
+                f"""
+                ALTER TABLE {SCHEMA}.datasets
+                ADD COLUMN IF NOT EXISTS custom_selection_status TEXT;
+                """
+            )
+
+            cur.execute(
+                f"""
+                ALTER TABLE {SCHEMA}.datasets
+                ADD COLUMN IF NOT EXISTS selected_dimensions JSONB;
+                """
+            )
+
+            cur.execute(
+                f"""
+                ALTER TABLE {SCHEMA}.datasets
                 ADD COLUMN IF NOT EXISTS retrieval_status TEXT;
                 """
             )
@@ -202,6 +230,27 @@ def init_database():
                 f"""
                 ALTER TABLE {SCHEMA}.datasets
                 ADD COLUMN IF NOT EXISTS data_access_url TEXT;
+                """
+            )
+
+            cur.execute(
+                f"""
+                ALTER TABLE {SCHEMA}.datasets
+                ADD COLUMN IF NOT EXISTS data_access_provider TEXT;
+                """
+            )
+
+            cur.execute(
+                f"""
+                ALTER TABLE {SCHEMA}.datasets
+                ADD COLUMN IF NOT EXISTS data_access_role TEXT;
+                """
+            )
+
+            cur.execute(
+                f"""
+                ALTER TABLE {SCHEMA}.datasets
+                ADD COLUMN IF NOT EXISTS retrieval_scope TEXT;
                 """
             )
 
@@ -361,6 +410,14 @@ def save_dataset_candidates(
                         dataset_code,
                         doi,
                         validation_reason,
+                        is_custom_view,
+                        bookmark_id,
+                        custom_selection_status,
+                        selected_dimensions,
+                        data_access_url,
+                        data_access_provider,
+                        data_access_role,
+                        retrieval_scope,
                         retrieval_status,
                         last_checked_at,
                         review_status
@@ -368,6 +425,14 @@ def save_dataset_candidates(
 
                     VALUES
                     (
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s,
                         %s,
                         %s,
                         %s,
@@ -462,6 +527,42 @@ def save_dataset_candidates(
 
                         dataset.get(
                             "validation_reason"
+                        ),
+
+                        dataset.get(
+                            "is_custom_view",
+                            False
+                        ),
+
+                        dataset.get(
+                            "bookmark_id"
+                        ),
+
+                        dataset.get(
+                            "custom_selection_status"
+                        ),
+
+                        Jsonb(
+                            dataset.get(
+                                "selected_dimensions",
+                                {}
+                            )
+                        ),
+
+                        dataset.get(
+                            "data_access_url"
+                        ),
+
+                        dataset.get(
+                            "data_access_provider"
+                        ),
+
+                        dataset.get(
+                            "data_access_role"
+                        ),
+
+                        dataset.get(
+                            "retrieval_scope"
                         )
                     )
                 )
@@ -558,6 +659,9 @@ def update_dataset_retrieval(
     dataset_id,
     retrieval_status,
     data_access_url=None,
+    data_access_provider=None,
+    data_access_role=None,
+    retrieval_scope=None,
     retrieval_message=None,
     retrieved_row_count=None,
     stored_row_count=None
@@ -599,6 +703,9 @@ def update_dataset_retrieval(
                 SET
                     retrieval_status = %s,
                     data_access_url = %s,
+                    data_access_provider = COALESCE(%s, data_access_provider),
+                    data_access_role = COALESCE(%s, data_access_role),
+                    retrieval_scope = COALESCE(%s, retrieval_scope),
                     retrieval_message = %s,
                     retrieved_row_count = %s,
                     stored_row_count = %s,
@@ -612,6 +719,9 @@ def update_dataset_retrieval(
                 (
                     retrieval_status,
                     data_access_url,
+                    data_access_provider,
+                    data_access_role,
+                    retrieval_scope,
                     retrieval_message,
                     retrieved_row_count,
                     stored_row_count,
@@ -833,9 +943,16 @@ def get_datasets_for_run(
                     dataset_code,
                     doi,
                     validation_reason,
+                    is_custom_view,
+                    bookmark_id,
+                    custom_selection_status,
+                    selected_dimensions,
                     last_checked_at,
                     retrieval_status,
                     data_access_url,
+                    data_access_provider,
+                    data_access_role,
+                    retrieval_scope,
                     retrieval_message,
                     retrieved_row_count,
                     stored_row_count,
@@ -915,29 +1032,50 @@ def get_datasets_for_run(
             "validation_reason":
                 row[17],
 
-            "last_checked_at":
+            "is_custom_view":
                 row[18],
 
-            "retrieval_status":
+            "bookmark_id":
                 row[19],
 
-            "data_access_url":
+            "custom_selection_status":
                 row[20],
 
-            "retrieval_message":
+            "selected_dimensions":
                 row[21],
 
-            "retrieved_row_count":
+            "last_checked_at":
                 row[22],
 
-            "stored_row_count":
+            "retrieval_status":
                 row[23],
 
-            "retrieved_at":
+            "data_access_url":
                 row[24],
 
+            "data_access_provider":
+                row[25],
+
+            "data_access_role":
+                row[26],
+
+            "retrieval_scope":
+                row[27],
+
+            "retrieval_message":
+                row[28],
+
+            "retrieved_row_count":
+                row[29],
+
+            "stored_row_count":
+                row[30],
+
+            "retrieved_at":
+                row[31],
+
             "review_status":
-                row[25]
+                row[32]
         }
 
         for row

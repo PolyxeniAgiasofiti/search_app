@@ -91,6 +91,12 @@ def test_user_provided_metadata_survives_public_data_search():
         "Estimated average age of young people leaving "
         "the parental household by sex"
     )
+    bookmark_url = (
+        "https://ec.europa.eu/eurostat/databrowser/view/"
+        "yth_demo_030__custom_22711535/bookmark/table?lang=en"
+        "&bookmarkId=4e866041-fb81-4144-be5d-0f064c5edb21"
+        "&c=1788854031000"
+    )
 
 
     def fake_fetch_source(url):
@@ -132,10 +138,7 @@ def test_user_provided_metadata_survives_public_data_search():
                     "name": "Estimated average age of young people leaving the parental household",
                     "reason": official_title,
                     "origin": "user_provided",
-                    "provided_source_url": (
-                        "https://ec.europa.eu/eurostat/databrowser/view/"
-                        "yth_demo_030__custom_22532746/default/table"
-                    ),
+                    "provided_source_url": bookmark_url,
                     "source_title": official_title,
                     "publisher": "Eurostat",
                     "source_description": official_title,
@@ -147,7 +150,11 @@ def test_user_provided_metadata_survives_public_data_search():
                     "validation_reason": "Official Eurostat metadata resolved.",
                     "validation_status": "validated",
                     "source_type": "statistical_authority",
-                    "data_access_type": "table"
+                    "data_access_type": "table",
+                    "is_custom_view": True,
+                    "bookmark_id": "4e866041-fb81-4144-be5d-0f064c5edb21",
+                    "custom_selection_status": "unresolved",
+                    "selected_dimensions": {}
                 }
             ]
         )
@@ -169,6 +176,11 @@ def test_user_provided_metadata_survives_public_data_search():
     assert datasets[0]["doi"] == "10.2908/YTH_DEMO_030"
     assert datasets[0]["validation_reason"] == "Official Eurostat metadata resolved."
     assert datasets[0]["source_origin"] == "user_provided"
+    assert datasets[0]["source_url"] == bookmark_url
+    assert datasets[0]["is_custom_view"] is True
+    assert datasets[0]["bookmark_id"] == "4e866041-fb81-4144-be5d-0f064c5edb21"
+    assert datasets[0]["custom_selection_status"] == "unresolved"
+    assert datasets[0]["selected_dimensions"] == {}
 
 
 if __name__ == "__main__":

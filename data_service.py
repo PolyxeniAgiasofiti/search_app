@@ -162,6 +162,49 @@ def build_user_provided_dataset_candidate(target):
                 "source_metadata"
             ),
 
+        "is_custom_view":
+            target.get(
+                "is_custom_view",
+                False
+            ),
+
+        "bookmark_id":
+            target.get(
+                "bookmark_id"
+            ),
+
+        "custom_selection_status":
+            target.get(
+                "custom_selection_status",
+                "not_applicable"
+            ),
+
+        "selected_dimensions":
+            target.get(
+                "selected_dimensions",
+                {}
+            ),
+
+        "data_access_url":
+            target.get(
+                "data_access_url"
+            ),
+
+        "data_access_provider":
+            target.get(
+                "data_access_provider"
+            ),
+
+        "data_access_role":
+            target.get(
+                "data_access_role"
+            ),
+
+        "retrieval_scope":
+            target.get(
+                "retrieval_scope"
+            ),
+
         "official_source":
             validation_status == "validated",
 

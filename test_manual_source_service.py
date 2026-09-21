@@ -1,10 +1,12 @@
 from urllib.error import HTTPError
 
+import ai_service
 import manual_source_service
 
 from manual_source_service import analyse_user_provided_source, validate_safe_url
 from search_service import extract_url_content
 from source_metadata_service import (
+    detect_eurostat_custom_view,
     extract_eurostat_metadata_from_xml,
     extract_eurostat_dataset_code,
     normalize_eurostat_dataset_code,
@@ -24,6 +26,13 @@ PUBLIC_TEST_ADDRESS = [
         )
     )
 ]
+
+EUROSTAT_BOOKMARK_URL = (
+    "https://ec.europa.eu/eurostat/databrowser/view/"
+    "yth_demo_030__custom_22711535/bookmark/table?lang=en"
+    "&bookmarkId=4e866041-fb81-4144-be5d-0f064c5edb21"
+    "&c=1788854031000"
+)
 
 
 class FakeHeaders(dict):
@@ -665,6 +674,123 @@ def test_eurostat_custom_code_normalization():
         "lfsa_ergaed__custom_123456/default/table"
     ) == "lfsa_ergaed"
 
+    custom_view = detect_eurostat_custom_view(
+        EUROSTAT_BOOKMARK_URL
+    )
+
+    assert extract_eurostat_dataset_code(
+        EUROSTAT_BOOKMARK_URL
+    ) == "yth_demo_030"
+    assert custom_view["is_custom_view"] is True
+    assert custom_view["raw_dataset_code"] == "yth_demo_030__custom_22711535"
+    assert custom_view["bookmark_id"] == "4e866041-fb81-4144-be5d-0f064c5edb21"
+
+
+def test_eurostat_bookmark_url_preserves_custom_state():
+
+    official_title = (
+        "Estimated average age of young persons leaving "
+        "the parental household"
+    )
+
+
+    def fake_urlopen(request, timeout=10):
+
+        if "/api/dissemination/" in request.full_url:
+
+            return FakeResponse(
+                request.full_url,
+                json_bytes(
+                    {
+                        "version": "2.0",
+                        "class": "dataset",
+                        "label": official_title,
+                        "extension": {
+                            "id": "YTH_DEMO_030",
+                            "description": "Official Eurostat indicator.",
+                            "annotation": [
+                                {
+                                    "type": "OBS_PERIOD_OVERALL_OLDEST",
+                                    "title": "2000"
+                                },
+                                {
+                                    "type": "OBS_PERIOD_OVERALL_LATEST",
+                                    "title": "2025"
+                                }
+                            ]
+                        }
+                    }
+                ),
+                "application/json"
+            )
+
+        return FakeResponse(
+            request.full_url,
+            b"<html><title>Eurostat Data Browser</title></html>",
+            "text/html"
+        )
+
+
+    def fake_extractor(url, definition=None):
+        assert url == EUROSTAT_BOOKMARK_URL
+        return {
+            "status": "success",
+            "extract_depth": "advanced",
+            "provided_url": url,
+            "final_url": url,
+            "content": (
+                "Estimated average age of young persons leaving the parental "
+                "household. Eurostat Data Browser table."
+            )
+        }
+
+
+    def fake_analyzer(definition, targets, evidence):
+        return {
+            "relevant": True,
+            "useful_data_source": True,
+            "validation_status": "validated",
+            "reason": "Official Eurostat table.",
+            "proposed_data_target": "Estimated average age of young persons leaving the parental household",
+            "target_description": "Official Eurostat indicator.",
+            "available_information": ["Eurostat Data Browser table"],
+            "source_title": official_title,
+            "publisher": "Eurostat",
+            "geographic_coverage": "unknown",
+            "time_coverage": "unknown",
+            "source_type": "statistical_authority",
+            "data_access_type": "table"
+        }
+
+
+    original_getaddrinfo = manual_source_service.socket.getaddrinfo
+
+    try:
+        manual_source_service.socket.getaddrinfo = lambda *_: PUBLIC_TEST_ADDRESS
+
+        result = analyse_user_provided_source(
+            "gerontocracy definition",
+            [],
+            EUROSTAT_BOOKMARK_URL,
+            analyzer_func=fake_analyzer,
+            urlopen_func=fake_urlopen,
+            extractor_func=fake_extractor
+        )
+
+    finally:
+        manual_source_service.socket.getaddrinfo = original_getaddrinfo
+
+    assert result["accepted"] is True
+    assert result["source_url"] == EUROSTAT_BOOKMARK_URL
+    assert result["dataset_code"] == "yth_demo_030"
+    assert result["source_title"] == official_title
+    assert result["data_target"] == "Estimated average age of young persons leaving the parental household"
+    assert result["is_custom_view"] is True
+    assert result["bookmark_id"] == "4e866041-fb81-4144-be5d-0f064c5edb21"
+    assert result["custom_selection_status"] == "unresolved"
+    assert result["selected_dimensions"] == {}
+    assert result["data_access_url"] is None
+
 
 def test_eurostat_metadata_fallback_succeeds_after_dataflow_failure():
 
@@ -983,6 +1109,396 @@ def test_eurostat_manual_source_needs_review_when_metadata_fails():
     assert result["source_type"] == "statistical_authority"
 
 
+def test_manual_url_context_preserves_eurostat_bookmark_selection():
+
+    calls = {
+        "url_context": [],
+        "extractor": []
+    }
+
+
+    def fake_urlopen(request, timeout=10):
+        if "api.db.nomics.world" in request.full_url:
+            return FakeResponse(
+                request.full_url,
+                json_bytes(
+                    {
+                        "datasets": {
+                            "docs": [
+                                {
+                                    "code": "yth_demo_030",
+                                    "name": (
+                                        "Estimated average age of young persons "
+                                        "leaving the parental household"
+                                    ),
+                                    "description": "Eurostat mirrored dataset."
+                                }
+                            ]
+                        }
+                    }
+                ),
+                "application/json"
+            )
+
+        return FakeResponse(
+            request.full_url,
+            b"<html><title>Eurostat Data Browser</title></html>",
+            "text/html"
+        )
+
+
+    def fake_url_context(definition, targets, url):
+        calls["url_context"].append(
+            url
+        )
+        return {
+            "analysis": {
+                "relevant": True,
+                "useful_data_source": True,
+                "validation_status": "validated",
+                "source_title": (
+                    "Estimated average age of young persons leaving the "
+                    "parental household"
+                ),
+                "publisher": "Eurostat",
+                "proposed_data_target": (
+                    "Estimated average age of young persons leaving the "
+                    "parental household"
+                ),
+                "description": "Official Eurostat Data Browser table.",
+                "dataset_code": "yth_demo_030",
+                "available_information": [
+                    "2025 values by reporting country"
+                ],
+                "geographic_coverage": "34/36 reporting entities displayed",
+                "time_coverage": "2025",
+                "selected_dimensions": {
+                    "time": ["2025"],
+                    "sex": ["Total"],
+                    "unit": ["Average"],
+                    "freq": ["Annual"],
+                    "geo": ["34/36 values displayed"]
+                },
+                "custom_selection_status": "resolved",
+                "format": "table",
+                "source_type": "statistical_authority",
+                "bookmark_id": "4e866041-fb81-4144-be5d-0f064c5edb21",
+                "is_custom_view": True,
+                "reason": "The URL Context result retrieved the exact Eurostat table."
+            },
+            "url_context_metadata": [
+                {
+                    "retrieved_url": EUROSTAT_BOOKMARK_URL,
+                    "url_retrieval_status": "URL_RETRIEVAL_STATUS_SUCCESS"
+                }
+            ]
+        }
+
+
+    def fake_extractor(url, definition=None):
+        calls["extractor"].append(
+            url
+        )
+        return {
+            "status": "error"
+        }
+
+
+    original_getaddrinfo = manual_source_service.socket.getaddrinfo
+
+    try:
+        manual_source_service.socket.getaddrinfo = lambda *_: PUBLIC_TEST_ADDRESS
+
+        result = analyse_user_provided_source(
+            "gerontocracy definition",
+            [],
+            EUROSTAT_BOOKMARK_URL,
+            urlopen_func=fake_urlopen,
+            extractor_func=fake_extractor,
+            url_context_func=fake_url_context
+        )
+
+    finally:
+        manual_source_service.socket.getaddrinfo = original_getaddrinfo
+
+    assert calls["url_context"] == [EUROSTAT_BOOKMARK_URL]
+    assert calls["extractor"] == []
+    assert result["accepted"] is True
+    assert result["source_url"] == EUROSTAT_BOOKMARK_URL
+    assert result["publisher"] == "Eurostat"
+    assert result["dataset_code"] == "yth_demo_030"
+    assert result["bookmark_id"] == "4e866041-fb81-4144-be5d-0f064c5edb21"
+    assert result["custom_selection_status"] == "resolved"
+    assert result["retrieval_scope"] == "bookmark_selection"
+    assert result["selected_dimensions"]["time"] == ["2025"]
+    assert result["selected_dimensions"]["sex"] == ["Total"]
+    assert result["selected_dimensions"]["unit"] == ["Average"]
+    assert result["selected_dimensions"]["freq"] == ["Annual"]
+    assert result["source_title"] == (
+        "Estimated average age of young persons leaving the parental household"
+    )
+
+
+def test_unresolved_eurostat_bookmark_uses_dbnomics_only_for_data_access():
+
+    def fake_urlopen(request, timeout=10):
+        if "api.db.nomics.world" in request.full_url:
+            return FakeResponse(
+                request.full_url,
+                json_bytes(
+                    {
+                        "datasets": {
+                            "docs": [
+                                {
+                                    "code": "yth_demo_030",
+                                    "name": (
+                                        "Estimated average age of young persons "
+                                        "leaving the parental household"
+                                    ),
+                                    "description": "Eurostat mirrored dataset."
+                                }
+                            ]
+                        }
+                    }
+                ),
+                "application/json"
+            )
+
+        return FakeResponse(
+            request.full_url,
+            b"<html><title>Server temporarily unavailable</title></html>",
+            "text/html"
+        )
+
+
+    def fake_url_context(definition, targets, url):
+        return {
+            "analysis": {
+                "relevant": True,
+                "useful_data_source": True,
+                "validation_status": "needs_review",
+                "source_title": None,
+                "publisher": "Eurostat",
+                "proposed_data_target": (
+                    "Estimated average age of young persons leaving the "
+                    "parental household"
+                ),
+                "description": None,
+                "dataset_code": "yth_demo_030",
+                "available_information": [],
+                "geographic_coverage": None,
+                "time_coverage": None,
+                "selected_dimensions": {},
+                "custom_selection_status": "unresolved",
+                "format": "table",
+                "source_type": "statistical_authority",
+                "bookmark_id": "4e866041-fb81-4144-be5d-0f064c5edb21",
+                "is_custom_view": True,
+                "reason": "The custom table filters could not be extracted."
+            },
+            "url_context_metadata": [
+                {
+                    "retrieved_url": EUROSTAT_BOOKMARK_URL,
+                    "url_retrieval_status": "success"
+                }
+            ]
+        }
+
+
+    original_getaddrinfo = manual_source_service.socket.getaddrinfo
+
+    try:
+        manual_source_service.socket.getaddrinfo = lambda *_: PUBLIC_TEST_ADDRESS
+
+        result = analyse_user_provided_source(
+            "gerontocracy definition",
+            [],
+            EUROSTAT_BOOKMARK_URL,
+            urlopen_func=fake_urlopen,
+            url_context_func=fake_url_context
+        )
+
+    finally:
+        manual_source_service.socket.getaddrinfo = original_getaddrinfo
+
+    assert result["accepted"] is True
+    assert result["validation_status"] == "validated"
+    assert result["source_url"] == EUROSTAT_BOOKMARK_URL
+    assert result["publisher"] == "Eurostat"
+    assert result["source_title"] == (
+        "Estimated average age of young persons leaving the parental household"
+    )
+    assert result["data_access_url"] == (
+        "https://api.db.nomics.world/v22/series/Eurostat/yth_demo_030/"
+        "A.AVG.T?observations=1"
+    )
+    assert result["data_access_provider"] == "DB.nomics"
+    assert result["data_access_role"] == "mirror"
+    assert result["retrieval_scope"] == "dataset"
+    assert result["custom_selection_status"] == "unresolved"
+    assert result["selected_dimensions"] == {}
+
+
+def test_manual_url_context_failure_falls_back_to_extract():
+
+    calls = {
+        "extractor": []
+    }
+
+
+    def fake_urlopen(request, timeout=10):
+        return FakeResponse(
+            request.full_url,
+            b"id,value\nage,1\n",
+            "text/csv"
+        )
+
+
+    def fake_url_context(definition, targets, url):
+        return {
+            "analysis": {
+                "relevant": True,
+                "useful_data_source": True,
+                "validation_status": "validated",
+                "source_title": "Unverified title"
+            },
+            "url_context_metadata": [
+                {
+                    "retrieved_url": url,
+                    "url_retrieval_status": "URL_RETRIEVAL_STATUS_ERROR"
+                }
+            ]
+        }
+
+
+    def fake_extractor(url, definition=None):
+        calls["extractor"].append(
+            url
+        )
+        return {
+            "status": "success",
+            "provided_url": url,
+            "final_url": url,
+            "content": "Age CSV with useful structured data."
+        }
+
+
+    def fake_analyzer(definition, targets, evidence):
+        return {
+            "relevant": True,
+            "useful_data_source": True,
+            "validation_status": "validated",
+            "reason": "Fallback extract contains data.",
+            "proposed_data_target": "Age data",
+            "target_description": "CSV age data.",
+            "available_information": ["age", "value"],
+            "source_title": "Age CSV",
+            "publisher": "Example Publisher",
+            "geographic_coverage": "unknown",
+            "time_coverage": "unknown",
+            "source_type": "public_research",
+            "data_access_type": "csv"
+        }
+
+
+    original_getaddrinfo = manual_source_service.socket.getaddrinfo
+
+    try:
+        manual_source_service.socket.getaddrinfo = lambda *_: PUBLIC_TEST_ADDRESS
+
+        result = analyse_user_provided_source(
+            "gerontocracy definition",
+            [],
+            "https://example.org/data.csv",
+            analyzer_func=fake_analyzer,
+            urlopen_func=fake_urlopen,
+            extractor_func=fake_extractor,
+            url_context_func=fake_url_context
+        )
+
+    finally:
+        manual_source_service.socket.getaddrinfo = original_getaddrinfo
+
+    assert calls["extractor"] == ["https://example.org/data.csv"]
+    assert result["accepted"] is True
+    assert result["source_title"] == "Age CSV"
+
+
+def test_url_context_ai_call_uses_url_context_without_google_search():
+
+    captured = {}
+
+
+    class FakeInteraction:
+
+        output_text = (
+            '{"relevant": false, "useful_data_source": false, '
+            '"validation_status": "invalid"}'
+        )
+
+        def model_dump(self, mode="json", exclude_none=True):
+            return {
+                "candidates": [
+                    {
+                        "urlContextMetadata": {
+                            "urlMetadata": [
+                                {
+                                    "retrievedUrl": EUROSTAT_BOOKMARK_URL,
+                                    "urlRetrievalStatus": (
+                                        "URL_RETRIEVAL_STATUS_SUCCESS"
+                                    )
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+
+
+    class FakeInteractions:
+
+        def create(self, **kwargs):
+            captured.update(
+                kwargs
+            )
+            return FakeInteraction()
+
+
+    class FakeClient:
+
+        interactions = FakeInteractions()
+
+
+    original_client = ai_service.client
+
+    try:
+        ai_service.client = FakeClient()
+
+        result = ai_service.analyze_manual_source_url_context(
+            "gerontocracy definition",
+            [],
+            EUROSTAT_BOOKMARK_URL
+        )
+
+    finally:
+        ai_service.client = original_client
+
+    assert captured["tools"] == [
+        {
+            "type": "url_context"
+        }
+    ]
+    assert "google_search" not in str(
+        captured["tools"]
+    )
+    assert result["url_context_metadata"] == [
+        {
+            "retrieved_url": EUROSTAT_BOOKMARK_URL,
+            "url_retrieval_status": "URL_RETRIEVAL_STATUS_SUCCESS"
+        }
+    ]
+
+
 def json_bytes(value):
     import json
 
@@ -1001,6 +1517,7 @@ if __name__ == "__main__":
     test_broken_url_is_not_added()
     test_eurostat_databrowser_uses_official_metadata_title()
     test_eurostat_custom_code_normalization()
+    test_eurostat_bookmark_url_preserves_custom_state()
     test_eurostat_metadata_fallback_succeeds_after_dataflow_failure()
     test_eurostat_metadata_all_methods_fail_with_diagnostics()
     test_eurostat_rdf_xml_metadata_uses_semantic_title_and_description()
@@ -1008,4 +1525,8 @@ if __name__ == "__main__":
     test_json_observation_period_maps_to_time_coverage()
     test_bad_ai_source_title_forces_needs_review()
     test_eurostat_manual_source_needs_review_when_metadata_fails()
+    test_manual_url_context_preserves_eurostat_bookmark_selection()
+    test_unresolved_eurostat_bookmark_uses_dbnomics_only_for_data_access()
+    test_manual_url_context_failure_falls_back_to_extract()
+    test_url_context_ai_call_uses_url_context_without_google_search()
     print("manual source service tests passed")

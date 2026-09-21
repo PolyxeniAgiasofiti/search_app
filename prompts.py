@@ -493,3 +493,108 @@ useful_data_source are true.
 
 Return only valid JSON.
 """
+
+
+def build_manual_source_url_context_prompt(
+    definition,
+    existing_data_targets,
+    provided_url
+):
+
+    targets_json = json.dumps(
+        existing_data_targets,
+        ensure_ascii=False,
+        indent=2
+    )
+
+    return f"""
+IDENTITY
+
+You are the manual-source URL Context validation component of Data Observatory.
+
+You must analyse ONLY the content retrieved from the exact URL supplied below.
+Do not use general knowledge. Do not use Google Search. Do not infer missing
+metadata from memory.
+
+CURRENT APPROVED DEFINITION
+
+{definition}
+
+EXISTING DATA TARGETS
+
+{targets_json}
+
+EXACT USER-PROVIDED URL
+
+{provided_url}
+
+TASK
+
+Use URL Context to inspect that exact URL and determine what statistical
+information this exact source provides.
+
+If the page contains a customised table or bookmarked data view, describe
+only the table/selection that is visible in the retrieved source content.
+
+If information is not available from URL Context evidence, return null for
+that field. Do not invent filters, years, geography, titles, publishers, or
+dimensions.
+
+RULES
+
+1. The source must be relevant to the Definition.
+2. A reachable page is not automatically valid.
+3. The source must contain, display, or directly point to usable structured
+   data, a table, dataset, API, database, CSV, XLSX, JSON, or official data
+   browser.
+4. A relevant article without structured data access is not automatically
+   validated.
+5. Never return vague titles such as Demographic Structure, Age Data,
+   Population Information, Relevant Dataset, Official Dataset, or unknown
+   when the page provides a specific title.
+6. The proposed_data_target must preserve the measurable concept.
+7. If the exact selected dimensions are visible, return them in
+   selected_dimensions. If not visible, return an empty object.
+8. Use custom_selection_status:
+   - "resolved" when exact filters/selections are clear
+   - "partially_resolved" when only some exact selection details are clear
+   - "unresolved" when the page is a custom/bookmark view but selection
+     details are not available
+   - "not_applicable" when the source is not a custom/bookmark view
+
+Return only valid JSON in exactly this structure:
+
+{{
+    "relevant": true,
+    "useful_data_source": true,
+    "validation_status": "validated",
+    "source_title": "Specific source title or null",
+    "publisher": "Publisher or null",
+    "proposed_data_target": "Specific measurable data target or null",
+    "description": "Specific description or null",
+    "dataset_code": "Dataset code or null",
+    "available_information": [
+        "Specific information visible in the retrieved source"
+    ],
+    "geographic_coverage": "Coverage or null",
+    "time_coverage": "Coverage or null",
+    "selected_dimensions": {{}},
+    "custom_selection_status": "resolved",
+    "format": "table",
+    "source_type": "statistical_authority",
+    "reason": "Short grounded reason"
+}}
+
+Allowed validation_status values:
+validated
+needs_review
+invalid
+
+Allowed custom_selection_status values:
+resolved
+partially_resolved
+unresolved
+not_applicable
+
+Return only valid JSON.
+"""

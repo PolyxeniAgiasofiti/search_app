@@ -12,7 +12,7 @@ from urllib.request import (
     build_opener
 )
 
-from ai_service import analyze_manual_source
+from ai_service import analyze_manual_source, analyze_manual_source_url_context
 from ingestion_service import detect_format, parse_json_bytes, parse_xlsx_bytes
 from search_service import extract_url_content
 from source_metadata_service import resolve_source_metadata
@@ -867,13 +867,102 @@ def is_bad_display_value(value):
     return False
 
 
+def url_context_retrieval_succeeded(
+    metadata,
+    provided_url
+):
+
+    if not metadata:
+        return False
+
+    provided_host = urlparse(
+        provided_url
+    ).hostname
+
+    for item in metadata:
+
+        status = str(
+            item.get(
+                "url_retrieval_status",
+                ""
+            )
+        ).upper()
+
+        retrieved_url = item.get(
+            "retrieved_url"
+        )
+
+        if not retrieved_url:
+            continue
+
+        try:
+            validate_safe_url(
+                retrieved_url
+            )
+        except UnsafeUrlError:
+            continue
+
+        retrieved_host = urlparse(
+            retrieved_url
+        ).hostname
+
+        if provided_host and retrieved_host and provided_host != retrieved_host:
+            continue
+
+        if (
+            "SUCCESS" in status
+            or
+            status in {
+                "",
+                "URL_RETRIEVAL_STATUS_SUCCESS"
+            }
+        ):
+            return True
+
+    return False
+
+
+def normalise_url_context_analysis(
+    url_context_result
+):
+
+    if not isinstance(
+        url_context_result,
+        dict
+    ):
+        return None
+
+    analysis = url_context_result.get(
+        "analysis"
+    )
+
+    if not isinstance(
+        analysis,
+        dict
+    ):
+        return None
+
+    if "description" in analysis and "target_description" not in analysis:
+        analysis["target_description"] = analysis.get(
+            "description"
+        )
+
+    if "format" in analysis and "data_access_type" not in analysis:
+        analysis["data_access_type"] = analysis.get(
+            "format"
+        )
+
+    return analysis
+
+
 def analyse_user_provided_source(
     definition,
     existing_data_targets,
     url,
     analyzer_func=None,
     urlopen_func=None,
-    extractor_func=None
+    extractor_func=None,
+    url_context_func=None
 ):
 
     fetch_result = fetch_source(
@@ -918,56 +1007,120 @@ def analyse_user_provided_source(
                 )
         }
 
-    if extractor_func is None:
-        extractor_func = extract_url_content
+    if url_context_func is None and analyzer_func is None:
+        url_context_func = analyze_manual_source_url_context
 
-    try:
-        extraction_result = extractor_func(
-            url,
-            definition=definition
-        )
-    except Exception as error:
-        extraction_result = {
-            "status":
-                "error",
+    url_context_result = None
+    url_context_success = False
 
-            "message":
-                str(
-                    error
+    if url_context_func is not None:
+        try:
+            url_context_result = url_context_func(
+                definition,
+                existing_data_targets,
+                url
+            )
+            url_context_success = url_context_retrieval_succeeded(
+                url_context_result.get(
+                    "url_context_metadata",
+                    []
                 ),
+                url
+            )
+        except Exception:
+            url_context_result = None
 
-            "attempts":
-                [
-                    {
-                        "status":
-                            "error",
-
-                        "message":
-                            str(
-                                error
-                            )
-                    }
-                ]
-        }
-
-    extraction_succeeded = (
-        isinstance(
-            extraction_result,
-            dict
-        )
-        and
-        extraction_result.get(
-            "status"
-        ) == "success"
-        and
-        extraction_result.get(
-            "content"
-        )
-    )
+    extraction_result = None
+    extraction_succeeded = False
 
     metadata = None
 
-    if extraction_succeeded:
+    if url_context_success:
+
+        analysis = normalise_url_context_analysis(
+            url_context_result
+        )
+
+        if analysis is None:
+            analysis = {}
+
+        evidence = {
+            "content_kind":
+                "gemini_url_context",
+
+            "original_url":
+                url,
+
+            "final_url":
+                fetch_result.get(
+                    "final_url"
+                ),
+
+            "url_context_metadata":
+                url_context_result.get(
+                    "url_context_metadata",
+                    []
+                )
+        }
+
+        try:
+            metadata = resolve_source_metadata(
+                url,
+                urlopen_func=urlopen_func
+            )
+        except Exception:
+            metadata = None
+
+    else:
+
+        if extractor_func is None:
+            extractor_func = extract_url_content
+
+        try:
+            extraction_result = extractor_func(
+                url,
+                definition=definition
+            )
+        except Exception as error:
+            extraction_result = {
+                "status":
+                    "error",
+
+                "message":
+                    str(
+                        error
+                    ),
+
+                "attempts":
+                    [
+                        {
+                            "status":
+                                "error",
+
+                            "message":
+                                str(
+                                    error
+                                )
+                        }
+                    ]
+            }
+
+        extraction_succeeded = (
+            isinstance(
+                extraction_result,
+                dict
+            )
+            and
+            extraction_result.get(
+                "status"
+            ) == "success"
+            and
+            extraction_result.get(
+                "content"
+            )
+        )
+
+    if (not url_context_success) and extraction_succeeded:
 
         evidence = build_tavily_source_evidence(
             extraction_result,
@@ -982,7 +1135,7 @@ def analyse_user_provided_source(
         except Exception:
             metadata = None
 
-    else:
+    elif not url_context_success:
 
         evidence = build_source_evidence(
             fetch_result
@@ -1039,20 +1192,24 @@ def analyse_user_provided_source(
                     )
             }
 
+        analysis = None
+
     evidence = merge_provider_metadata(
         evidence,
         metadata
     )
 
-    if analyzer_func is None:
+    if not url_context_success:
 
-        analyzer_func = analyze_manual_source
+        if analyzer_func is None:
 
-    analysis = analyzer_func(
-        definition,
-        existing_data_targets,
-        evidence
-    )
+            analyzer_func = analyze_manual_source
+
+        analysis = analyzer_func(
+            definition,
+            existing_data_targets,
+            evidence
+        )
 
     validation_status = analysis.get(
         "validation_status",
@@ -1122,7 +1279,11 @@ def analyse_user_provided_source(
         )
         and
         (
-            not extraction_succeeded
+            (
+                not url_context_success
+                and
+                not extraction_succeeded
+            )
             or
             is_bad_display_value(
                 source_title
@@ -1191,6 +1352,129 @@ def analyse_user_provided_source(
         data_target = metadata.get(
             "source_title"
         )
+
+    dataset_code = analysis.get(
+        "dataset_code"
+    )
+    doi = analysis.get(
+        "doi"
+    )
+    is_custom_view = bool(
+        analysis.get(
+            "is_custom_view"
+        )
+    )
+    bookmark_id = analysis.get(
+        "bookmark_id"
+    )
+    custom_selection_status = analysis.get(
+        "custom_selection_status"
+    )
+    selected_dimensions = analysis.get(
+        "selected_dimensions"
+    )
+    data_access_url = analysis.get(
+        "data_access_url"
+    )
+    data_access_provider = analysis.get(
+        "data_access_provider"
+    )
+    data_access_role = analysis.get(
+        "data_access_role"
+    )
+    retrieval_scope = analysis.get(
+        "retrieval_scope"
+    )
+
+    if not isinstance(
+        selected_dimensions,
+        dict
+    ):
+        selected_dimensions = {}
+
+    if metadata:
+        dataset_code = dataset_code or metadata.get(
+            "dataset_code"
+        )
+        doi = doi or metadata.get(
+            "doi"
+        )
+        is_custom_view = is_custom_view or bool(
+            metadata.get(
+                "is_custom_view"
+            )
+        )
+        bookmark_id = bookmark_id or metadata.get(
+            "bookmark_id"
+        )
+        custom_selection_status = custom_selection_status or metadata.get(
+            "custom_selection_status"
+        )
+        if not selected_dimensions:
+            selected_dimensions = metadata.get(
+                "selected_dimensions",
+                {}
+            )
+        data_access_url = data_access_url or metadata.get(
+            "data_access_url"
+        )
+        data_access_provider = data_access_provider or metadata.get(
+            "data_access_provider"
+        )
+        data_access_role = data_access_role or metadata.get(
+            "data_access_role"
+        )
+        retrieval_scope = retrieval_scope or metadata.get(
+            "retrieval_scope"
+        )
+
+    if is_custom_view and not custom_selection_status:
+        custom_selection_status = "unresolved"
+    elif not custom_selection_status:
+        custom_selection_status = "not_applicable"
+
+    if custom_selection_status == "resolved":
+        retrieval_scope = "bookmark_selection"
+    elif custom_selection_status in {
+        "unresolved",
+        "partially_resolved"
+    }:
+        retrieval_scope = "dataset"
+    elif not retrieval_scope:
+        retrieval_scope = (
+            "bookmark_selection"
+            if custom_selection_status == "resolved"
+            else
+            "dataset"
+        )
+
+    if (
+        not accepted
+        and
+        analysis.get(
+            "relevant"
+        ) is True
+        and
+        analysis.get(
+            "useful_data_source"
+        ) is True
+        and
+        validation_status == "needs_review"
+        and
+        metadata
+        and
+        metadata.get(
+            "provider"
+        ) == "eurostat"
+        and
+        metadata.get(
+            "source_title"
+        )
+        and
+        data_access_url
+    ):
+        validation_status = "validated"
+        accepted = True
 
     if accepted and is_bad_display_value(
         source_title
@@ -1270,20 +1554,34 @@ def analyse_user_provided_source(
             metadata,
 
         "dataset_code":
-            metadata.get(
-                "dataset_code"
-            )
-            if metadata
-            else
-            None,
+            dataset_code,
 
         "doi":
-            metadata.get(
-                "doi"
-            )
-            if metadata
-            else
-            None,
+            doi,
+
+        "is_custom_view":
+            is_custom_view,
+
+        "bookmark_id":
+            bookmark_id,
+
+        "custom_selection_status":
+            custom_selection_status,
+
+        "selected_dimensions":
+            selected_dimensions,
+
+        "data_access_url":
+            data_access_url,
+
+        "data_access_provider":
+            data_access_provider,
+
+        "data_access_role":
+            data_access_role,
+
+        "retrieval_scope":
+            retrieval_scope,
 
         "message":
             analysis.get(

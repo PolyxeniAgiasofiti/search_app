@@ -303,6 +303,13 @@ def parse_json_bytes(content):
         dict
     ):
 
+        dbnomics_rows = parse_dbnomics_series_rows(
+            parsed
+        )
+
+        if dbnomics_rows is not None:
+            return dbnomics_rows
+
         records = None
 
         for key in [
@@ -351,6 +358,109 @@ def parse_json_bytes(content):
         for row
         in records
     ]
+
+
+def parse_dbnomics_series_rows(parsed):
+
+    series_docs = (
+        parsed.get(
+            "series",
+            {}
+        ).get(
+            "docs",
+            []
+        )
+        if isinstance(
+            parsed,
+            dict
+        )
+        else
+        []
+    )
+
+    if not series_docs:
+        return None
+
+    rows = []
+
+    for series in series_docs:
+
+        if not isinstance(
+            series,
+            dict
+        ):
+            continue
+
+        periods = series.get(
+            "period",
+            []
+        )
+        values = series.get(
+            "value",
+            []
+        )
+        dimensions = series.get(
+            "dimensions",
+            {}
+        )
+
+        if not isinstance(
+            dimensions,
+            dict
+        ):
+            dimensions = {}
+
+        for index, period in enumerate(
+            periods
+        ):
+
+            value = (
+                values[index]
+                if index < len(
+                    values
+                )
+                else
+                None
+            )
+
+            row = {
+                "dataset_code":
+                    series.get(
+                        "dataset_code"
+                    ),
+
+                "dataset_name":
+                    series.get(
+                        "dataset_name"
+                    ),
+
+                "series_code":
+                    series.get(
+                        "series_code"
+                    ),
+
+                "series_name":
+                    series.get(
+                        "series_name"
+                    ),
+
+                "time":
+                    period,
+
+                "value":
+                    value
+            }
+
+            row.update(
+                dimensions
+            )
+            rows.append(
+                normalise_row(
+                    row
+                )
+            )
+
+    return rows
 
 
 def parse_xlsx_bytes(content):

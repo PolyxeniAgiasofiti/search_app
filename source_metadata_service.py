@@ -22,6 +22,13 @@ EUROSTAT_STATISTICS_DATA_ENDPOINT = (
     "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/"
     "data/{code}?lang=en"
 )
+DBNOMICS_EUROSTAT_DATASET_ENDPOINT = (
+    "https://api.db.nomics.world/v22/datasets/Eurostat/{code}"
+)
+DBNOMICS_EUROSTAT_TOTAL_SERIES_ENDPOINT = (
+    "https://api.db.nomics.world/v22/series/Eurostat/{code}/A.AVG.T"
+    "?observations=1"
+)
 
 TITLE_NAMES = {
     "title",
@@ -39,6 +46,13 @@ RDF_SYNTAX_NAMESPACE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
 EXCLUDED_TITLE_NAMES = {
     "identifier",
     "notation"
+}
+
+INVALID_METADATA_TITLES = {
+    "server temporarily unavailable",
+    "temporarily unavailable",
+    "service unavailable",
+    "eurostat data browser"
 }
 
 TEMPORAL_NAMES = {
@@ -83,6 +97,68 @@ def normalize_eurostat_dataset_code(raw_code):
         return None
 
     return dataset_code.lower()
+
+
+def detect_eurostat_custom_view(url):
+
+    parsed = urlparse(
+        url
+    )
+
+    path = parsed.path.lower()
+    query = parsed.query.lower()
+    raw_code = extract_eurostat_raw_dataset_code(
+        url
+    )
+
+    is_custom = (
+        "/bookmark/" in path
+        or
+        "bookmarkid=" in query
+        or
+        (
+            raw_code
+            and
+            "__custom_" in raw_code.lower()
+        )
+    )
+
+    return {
+        "is_custom_view":
+            bool(
+                is_custom
+            ),
+
+        "raw_dataset_code":
+            raw_code,
+
+        "bookmark_id":
+            get_query_parameter(
+                parsed.query,
+                "bookmarkId"
+            )
+    }
+
+
+def get_query_parameter(query, name):
+
+    for part in query.split(
+        "&"
+    ):
+
+        if not part:
+            continue
+
+        key, _, value = part.partition(
+            "="
+        )
+
+        if key.lower() == name.lower():
+            return unquote(
+                value
+            )
+
+    return None
 
 
 def extract_eurostat_dataset_code(url):
@@ -416,6 +492,9 @@ def is_identifier_like_title(value, dataset_code):
     )
 
     if not cleaned:
+        return True
+
+    if cleaned.lower() in INVALID_METADATA_TITLES:
         return True
 
     compact = cleaned.upper().replace(
@@ -1197,6 +1276,172 @@ def resolve_eurostat_statistics_data_metadata(
     ]
 
 
+def resolve_dbnomics_eurostat_metadata(
+    dataset_code,
+    urlopen_func=None
+):
+
+    metadata_url = DBNOMICS_EUROSTAT_DATASET_ENDPOINT.format(
+        code=dataset_code.lower()
+    )
+    attempt = {
+        "method":
+            "dbnomics_eurostat_dataset",
+
+        "url":
+            metadata_url
+    }
+
+    try:
+        content, status_code = read_response_url(
+            metadata_url,
+            urlopen_func=urlopen_func
+        )
+        attempt["http_status"] = status_code
+    except (HTTPError, URLError, TimeoutError, OSError, ValueError) as error:
+        attempt["failure_reason"] = str(
+            error
+        )
+        return None, [
+            attempt
+        ]
+
+    try:
+        payload = json.loads(
+            content.decode(
+                "utf-8-sig"
+            )
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        attempt["failure_reason"] = str(
+            error
+        )
+        return None, [
+            attempt
+        ]
+
+    docs = (
+        payload.get(
+            "datasets",
+            {}
+        ).get(
+            "docs",
+            []
+        )
+        if isinstance(
+            payload,
+            dict
+        )
+        else
+        []
+    )
+
+    if not docs:
+        attempt["failure_reason"] = "No DB.nomics dataset document found."
+        return None, [
+            attempt
+        ]
+
+    dataset = docs[0]
+    title = clean_metadata_text(
+        dataset.get(
+            "name"
+        )
+        or
+        dataset.get(
+            "description"
+        )
+    )
+
+    if not title or is_identifier_like_title(
+        title,
+        dataset_code
+    ):
+        attempt["failure_reason"] = "No dataset title found in DB.nomics payload."
+        return None, [
+            attempt
+        ]
+
+    data_access_url = DBNOMICS_EUROSTAT_TOTAL_SERIES_ENDPOINT.format(
+        code=dataset_code.lower()
+    )
+
+    return {
+        "provider":
+            "eurostat",
+
+        "dataset_code":
+            dataset_code.lower(),
+
+        "source_title":
+            title,
+
+        "publisher":
+            "Eurostat",
+
+        "description":
+            dataset.get(
+                "description"
+            )
+            or
+            title,
+
+        "source_type":
+            "statistical_authority",
+
+        "data_access_type":
+            "json",
+
+        "format":
+            "json",
+
+        "time_coverage":
+            "unknown",
+
+        "geographic_coverage":
+            "Europe",
+
+        "available_information":
+            [
+                "Eurostat dataset code: "
+                + dataset_code.lower(),
+                "Official Eurostat dataset title: "
+                + title,
+                "Machine-readable Eurostat mirror: DB.nomics"
+            ],
+
+        "data_access_url":
+            data_access_url,
+
+        "data_access_provider":
+            "DB.nomics",
+
+        "data_access_role":
+            "mirror",
+
+        "retrieval_scope":
+            "dataset",
+
+        "metadata_url":
+            metadata_url,
+
+        "metadata_method_attempted":
+            "dbnomics_eurostat_dataset",
+
+        "metadata_http_status":
+            attempt.get(
+                "http_status"
+            ),
+
+        "diagnostics":
+            [
+                attempt
+            ]
+    }, [
+        attempt
+    ]
+
+
 def resolve_eurostat_metadata(
     url,
     urlopen_func=None
@@ -1216,6 +1461,10 @@ def resolve_eurostat_metadata(
     if raw_dataset_code is None:
         raw_dataset_code = dataset_code
 
+    custom_view = detect_eurostat_custom_view(
+        url
+    )
+
     metadata, attempts = resolve_eurostat_dataflow_metadata(
         dataset_code,
         urlopen_func=urlopen_func
@@ -1224,6 +1473,22 @@ def resolve_eurostat_metadata(
     if metadata:
         metadata["raw_dataset_code"] = raw_dataset_code
         metadata["normalized_dataset_code"] = dataset_code
+        metadata["is_custom_view"] = custom_view.get(
+            "is_custom_view",
+            False
+        )
+        metadata["bookmark_id"] = custom_view.get(
+            "bookmark_id"
+        )
+        metadata["custom_selection_status"] = (
+            "unresolved"
+            if custom_view.get(
+                "is_custom_view"
+            )
+            else
+            "not_applicable"
+        )
+        metadata["selected_dimensions"] = {}
         return metadata
 
     fallback_metadata, fallback_attempts = resolve_eurostat_statistics_data_metadata(
@@ -1237,8 +1502,54 @@ def resolve_eurostat_metadata(
     if fallback_metadata:
         fallback_metadata["raw_dataset_code"] = raw_dataset_code
         fallback_metadata["normalized_dataset_code"] = dataset_code
+        fallback_metadata["is_custom_view"] = custom_view.get(
+            "is_custom_view",
+            False
+        )
+        fallback_metadata["bookmark_id"] = custom_view.get(
+            "bookmark_id"
+        )
+        fallback_metadata["custom_selection_status"] = (
+            "unresolved"
+            if custom_view.get(
+                "is_custom_view"
+            )
+            else
+            "not_applicable"
+        )
+        fallback_metadata["selected_dimensions"] = {}
         fallback_metadata["diagnostics"] = attempts
         return fallback_metadata
+
+    mirror_metadata, mirror_attempts = resolve_dbnomics_eurostat_metadata(
+        dataset_code,
+        urlopen_func=urlopen_func
+    )
+    attempts.extend(
+        mirror_attempts
+    )
+
+    if mirror_metadata:
+        mirror_metadata["raw_dataset_code"] = raw_dataset_code
+        mirror_metadata["normalized_dataset_code"] = dataset_code
+        mirror_metadata["is_custom_view"] = custom_view.get(
+            "is_custom_view",
+            False
+        )
+        mirror_metadata["bookmark_id"] = custom_view.get(
+            "bookmark_id"
+        )
+        mirror_metadata["custom_selection_status"] = (
+            "unresolved"
+            if custom_view.get(
+                "is_custom_view"
+            )
+            else
+            "not_applicable"
+        )
+        mirror_metadata["selected_dimensions"] = {}
+        mirror_metadata["diagnostics"] = attempts
+        return mirror_metadata
 
     return {
         "provider":
@@ -1252,6 +1563,28 @@ def resolve_eurostat_metadata(
 
         "normalized_dataset_code":
             dataset_code,
+
+        "is_custom_view":
+            custom_view.get(
+                "is_custom_view",
+                False
+            ),
+
+        "bookmark_id":
+            custom_view.get(
+                "bookmark_id"
+            ),
+
+        "custom_selection_status":
+            "unresolved"
+            if custom_view.get(
+                "is_custom_view"
+            )
+            else
+            "not_applicable",
+
+        "selected_dimensions":
+            {},
 
         "metadata_method_attempted":
             "sdmx_dataflow, statistics_data",

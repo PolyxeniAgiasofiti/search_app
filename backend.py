@@ -39,6 +39,43 @@ except Exception as error:
 # SERVER
 # ---------------------------------------------------------
 
+def determine_retrieval_scope(dataset):
+
+    if dataset.get(
+        "custom_selection_status"
+    ) == "resolved":
+        return "bookmark_selection"
+
+    return "dataset"
+
+
+def build_retrieval_success_message(
+    dataset,
+    retrieval_scope,
+    default_message=""
+):
+
+    if (
+        retrieval_scope == "dataset"
+        and
+        dataset.get(
+            "is_custom_view"
+        )
+        and
+        dataset.get(
+            "custom_selection_status"
+        ) != "resolved"
+    ):
+        return (
+            "Dataset data retrieved successfully. The exact bookmarked "
+            "selection could not be reconstructed, so the retrieved rows "
+            "represent the underlying dataset rather than the exact "
+            "bookmarked view."
+        )
+
+    return default_message
+
+
 def server(input, output, session):
 
     revised_result = reactive.Value(None)
@@ -824,6 +861,49 @@ def server(input, output, session):
                     "doi"
                 ),
 
+            "is_custom_view":
+                analysis.get(
+                    "is_custom_view",
+                    False
+                ),
+
+            "bookmark_id":
+                analysis.get(
+                    "bookmark_id"
+                ),
+
+            "custom_selection_status":
+                analysis.get(
+                    "custom_selection_status",
+                    "not_applicable"
+                ),
+
+            "selected_dimensions":
+                analysis.get(
+                    "selected_dimensions",
+                    {}
+                ),
+
+            "data_access_url":
+                analysis.get(
+                    "data_access_url"
+                ),
+
+            "data_access_provider":
+                analysis.get(
+                    "data_access_provider"
+                ),
+
+            "data_access_role":
+                analysis.get(
+                    "data_access_role"
+                ),
+
+            "retrieval_scope":
+                analysis.get(
+                    "retrieval_scope"
+                ),
+
             "source_metadata":
                 analysis.get(
                     "source_metadata"
@@ -1462,11 +1542,85 @@ def server(input, output, session):
         )
 
 
-        result = retrieve_dataset(
+        if (
+            dataset.get(
+                "is_custom_view"
+            )
+            and
+            dataset.get(
+                "custom_selection_status"
+            ) == "unresolved"
+            and
+            not dataset.get(
+                "data_access_url"
+            )
+        ):
+
+            message = (
+                "Dataset identified, but the exact bookmarked selection "
+                "could not yet be translated into a machine-readable request."
+            )
+
+            update_dataset_retrieval(
+                dataset_id=dataset_id,
+                retrieval_status="unsupported",
+                data_access_url=dataset.get(
+                    "source_url"
+                ),
+                retrieval_scope="dataset",
+                retrieval_message=message
+            )
+
+            update_dataset_in_state(
+                dataset_id,
+                {
+                    "retrieval_status":
+                        "unsupported",
+
+                    "data_access_url":
+                        dataset.get(
+                            "source_url"
+                        ),
+
+                    "retrieval_scope":
+                        "dataset",
+
+                    "retrieval_message":
+                        message
+                }
+            )
+
+            public_data_status_value.set(
+                message
+            )
+
+            return
+
+
+        retrieval_url = (
+            dataset.get(
+                "data_access_url"
+            )
+            or
             dataset.get(
                 "source_url",
                 ""
             )
+        )
+        retrieval_scope = (
+            determine_retrieval_scope(
+                dataset
+            )
+        )
+        data_access_provider = dataset.get(
+            "data_access_provider"
+        )
+        data_access_role = dataset.get(
+            "data_access_role"
+        )
+
+        result = retrieve_dataset(
+            retrieval_url
         )
 
 
@@ -1484,15 +1638,24 @@ def server(input, output, session):
                 rows
             )
 
+            retrieval_message = build_retrieval_success_message(
+                dataset,
+                retrieval_scope,
+                result.get(
+                    "message"
+                )
+            )
+
             update_dataset_retrieval(
                 dataset_id=dataset_id,
                 retrieval_status="retrieved",
                 data_access_url=result.get(
                     "data_access_url"
                 ),
-                retrieval_message=result.get(
-                    "message"
-                ),
+                data_access_provider=data_access_provider,
+                data_access_role=data_access_role,
+                retrieval_scope=retrieval_scope,
+                retrieval_message=retrieval_message,
                 retrieved_row_count=result.get(
                     "retrieved_row_count"
                 ),
@@ -1523,10 +1686,18 @@ def server(input, output, session):
                             "data_access_url"
                         ),
 
+                    "data_access_provider":
+                        data_access_provider,
+
+                    "data_access_role":
+                        data_access_role,
+
+                    "retrieval_scope":
+                        retrieval_scope,
+
                     "retrieval_message":
-                        result.get(
-                            "message"
-                        ),
+                        retrieval_message,
+
 
                     "retrieved_row_count":
                         result.get(
@@ -1539,6 +1710,8 @@ def server(input, output, session):
             )
 
             public_data_status_value.set(
+                retrieval_message
+                or
                 "Data retrieval completed."
             )
 
@@ -1554,6 +1727,9 @@ def server(input, output, session):
             data_access_url=result.get(
                 "data_access_url"
             ),
+            data_access_provider=data_access_provider,
+            data_access_role=data_access_role,
+            retrieval_scope=retrieval_scope,
             retrieval_message=result.get(
                 "message"
             ),
@@ -1578,6 +1754,15 @@ def server(input, output, session):
                     result.get(
                         "data_access_url"
                     ),
+
+                "data_access_provider":
+                    data_access_provider,
+
+                "data_access_role":
+                    data_access_role,
+
+                "retrieval_scope":
+                    retrieval_scope,
 
                 "retrieval_message":
                     result.get(
@@ -1898,6 +2083,94 @@ def server(input, output, session):
                         )
                     )
                 )
+
+            if dataset.get(
+                "data_access_provider"
+            ):
+
+                card_elements.append(
+                    ui.tags.p(
+                        ui.tags.strong(
+                            "Data access provider: "
+                        ),
+
+                        dataset.get(
+                            "data_access_provider"
+                        ),
+
+                        (
+                            " ("
+                            + dataset.get(
+                                "data_access_role",
+                                "access"
+                            )
+                            + ")"
+                        )
+                        if dataset.get(
+                            "data_access_role"
+                        )
+                        else
+                        ""
+                    )
+                )
+
+            if dataset.get(
+                "retrieval_scope"
+            ):
+
+                card_elements.append(
+                    ui.tags.p(
+                        ui.tags.strong(
+                            "Retrieved scope: "
+                        ),
+
+                        dataset.get(
+                            "retrieval_scope"
+                        ).replace(
+                            "_",
+                            " "
+                        ).title()
+                    )
+                )
+
+            if dataset.get(
+                "is_custom_view"
+            ):
+
+                card_elements.append(
+                    ui.tags.p(
+                        ui.tags.strong(
+                            "Custom selection: "
+                        ),
+
+                        (
+                            dataset.get(
+                                "custom_selection_status"
+                            )
+                            or
+                            "unresolved"
+                        ).replace(
+                            "_",
+                            " "
+                        ).title()
+                    )
+                )
+
+                if dataset.get(
+                    "bookmark_id"
+                ):
+
+                    card_elements.append(
+                        ui.tags.p(
+                            ui.tags.strong(
+                                "Bookmark ID: "
+                            ),
+
+                            dataset.get(
+                                "bookmark_id"
+                            )
+                        )
+                    )
 
             if dataset.get(
                 "retrieved_row_count"

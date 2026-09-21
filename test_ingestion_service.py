@@ -181,6 +181,81 @@ class IngestionServiceTest(unittest.TestCase):
         )
 
 
+    def test_dbnomics_series_json_parsing(self):
+
+        rows = parse_json_bytes(
+            json.dumps(
+                {
+                    "series": {
+                        "docs": [
+                            {
+                                "dataset_code": "yth_demo_030",
+                                "dataset_name": (
+                                    "Estimated average age of young persons "
+                                    "leaving the parental household"
+                                ),
+                                "series_code": "A.AVG.T.EL",
+                                "series_name": "Annual - Average - Total - Greece",
+                                "dimensions": {
+                                    "freq": "A",
+                                    "unit": "AVG",
+                                    "sex": "T",
+                                    "geo": "EL"
+                                },
+                                "period": [
+                                    "2024",
+                                    "2025"
+                                ],
+                                "value": [
+                                    30.7,
+                                    30.9
+                                ]
+                            }
+                        ]
+                    }
+                }
+            ).encode(
+                "utf-8"
+            )
+        )
+
+        self.assertEqual(
+            rows,
+            [
+                {
+                    "dataset_code": "yth_demo_030",
+                    "dataset_name": (
+                        "Estimated average age of young persons leaving "
+                        "the parental household"
+                    ),
+                    "series_code": "A.AVG.T.EL",
+                    "series_name": "Annual - Average - Total - Greece",
+                    "time": "2024",
+                    "value": 30.7,
+                    "freq": "A",
+                    "unit": "AVG",
+                    "sex": "T",
+                    "geo": "EL"
+                },
+                {
+                    "dataset_code": "yth_demo_030",
+                    "dataset_name": (
+                        "Estimated average age of young persons leaving "
+                        "the parental household"
+                    ),
+                    "series_code": "A.AVG.T.EL",
+                    "series_name": "Annual - Average - Total - Greece",
+                    "time": "2025",
+                    "value": 30.9,
+                    "freq": "A",
+                    "unit": "AVG",
+                    "sex": "T",
+                    "geo": "EL"
+                }
+            ]
+        )
+
+
     def test_unsupported_json_structure(self):
 
         rows = parse_json_bytes(
