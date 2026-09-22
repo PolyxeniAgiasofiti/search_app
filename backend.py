@@ -1554,6 +1554,10 @@ def server(input, output, session):
             not dataset.get(
                 "data_access_url"
             )
+            and
+            not dataset.get(
+                "dataset_code"
+            )
         ):
 
             message = (
@@ -1620,13 +1624,35 @@ def server(input, output, session):
         )
 
         result = retrieve_dataset(
-            retrieval_url
+            retrieval_url,
+            data_target=dataset.get(
+                "data_target"
+            ),
+            publisher=dataset.get(
+                "publisher"
+            ),
+            dataset_code=dataset.get(
+                "dataset_code"
+            ),
+            original_source_url=dataset.get(
+                "source_url"
+            )
         )
 
+        retrieval_scope = (
+            result.get(
+                "retrieved_scope"
+            )
+            or
+            retrieval_scope
+        )
 
         if result.get(
             "retrieval_status"
-        ) == "retrieved":
+        ) in {
+            "retrieved",
+            "retrieved_with_warnings"
+        }:
 
             rows = result.get(
                 "rows",
@@ -1655,6 +1681,9 @@ def server(input, output, session):
                 data_access_provider=data_access_provider,
                 data_access_role=data_access_role,
                 retrieval_scope=retrieval_scope,
+                retrieval_method=result.get(
+                    "retrieval_method"
+                ),
                 retrieval_message=retrieval_message,
                 retrieved_row_count=result.get(
                     "retrieved_row_count"
@@ -1679,7 +1708,9 @@ def server(input, output, session):
                 dataset_id,
                 {
                     "retrieval_status":
-                        "retrieved",
+                        result.get(
+                            "retrieval_status"
+                        ),
 
                     "data_access_url":
                         result.get(
@@ -1694,6 +1725,11 @@ def server(input, output, session):
 
                     "retrieval_scope":
                         retrieval_scope,
+
+                    "retrieval_method":
+                        result.get(
+                            "retrieval_method"
+                        ),
 
                     "retrieval_message":
                         retrieval_message,
@@ -1730,6 +1766,9 @@ def server(input, output, session):
             data_access_provider=data_access_provider,
             data_access_role=data_access_role,
             retrieval_scope=retrieval_scope,
+            retrieval_method=result.get(
+                "retrieval_method"
+            ),
             retrieval_message=result.get(
                 "message"
             ),
@@ -1763,6 +1802,11 @@ def server(input, output, session):
 
                 "retrieval_scope":
                     retrieval_scope,
+
+                "retrieval_method":
+                    result.get(
+                        "retrieval_method"
+                    ),
 
                 "retrieval_message":
                     result.get(
@@ -2126,6 +2170,25 @@ def server(input, output, session):
 
                         dataset.get(
                             "retrieval_scope"
+                        ).replace(
+                            "_",
+                            " "
+                        ).title()
+                    )
+                )
+
+            if dataset.get(
+                "retrieval_method"
+            ):
+
+                card_elements.append(
+                    ui.tags.p(
+                        ui.tags.strong(
+                            "Retrieval method: "
+                        ),
+
+                        dataset.get(
+                            "retrieval_method"
                         ).replace(
                             "_",
                             " "

@@ -257,6 +257,13 @@ def init_database():
             cur.execute(
                 f"""
                 ALTER TABLE {SCHEMA}.datasets
+                ADD COLUMN IF NOT EXISTS retrieval_method TEXT;
+                """
+            )
+
+            cur.execute(
+                f"""
+                ALTER TABLE {SCHEMA}.datasets
                 ADD COLUMN IF NOT EXISTS retrieval_message TEXT;
                 """
             )
@@ -662,6 +669,7 @@ def update_dataset_retrieval(
     data_access_provider=None,
     data_access_role=None,
     retrieval_scope=None,
+    retrieval_method=None,
     retrieval_message=None,
     retrieved_row_count=None,
     stored_row_count=None
@@ -670,6 +678,7 @@ def update_dataset_retrieval(
     valid_statuses = {
         "not_started",
         "retrieved",
+        "retrieved_with_warnings",
         "unsupported",
         "failed",
         "too_large"
@@ -687,7 +696,10 @@ def update_dataset_retrieval(
 
         with conn.cursor() as cur:
 
-            if retrieval_status == "retrieved":
+            if retrieval_status in {
+                "retrieved",
+                "retrieved_with_warnings"
+            }:
 
                 retrieved_at_sql = "NOW()"
 
@@ -706,6 +718,7 @@ def update_dataset_retrieval(
                     data_access_provider = COALESCE(%s, data_access_provider),
                     data_access_role = COALESCE(%s, data_access_role),
                     retrieval_scope = COALESCE(%s, retrieval_scope),
+                    retrieval_method = COALESCE(%s, retrieval_method),
                     retrieval_message = %s,
                     retrieved_row_count = %s,
                     stored_row_count = %s,
@@ -722,6 +735,7 @@ def update_dataset_retrieval(
                     data_access_provider,
                     data_access_role,
                     retrieval_scope,
+                    retrieval_method,
                     retrieval_message,
                     retrieved_row_count,
                     stored_row_count,
@@ -953,6 +967,7 @@ def get_datasets_for_run(
                     data_access_provider,
                     data_access_role,
                     retrieval_scope,
+                    retrieval_method,
                     retrieval_message,
                     retrieved_row_count,
                     stored_row_count,
@@ -1062,20 +1077,23 @@ def get_datasets_for_run(
             "retrieval_scope":
                 row[27],
 
-            "retrieval_message":
+            "retrieval_method":
                 row[28],
 
-            "retrieved_row_count":
+            "retrieval_message":
                 row[29],
 
-            "stored_row_count":
+            "retrieved_row_count":
                 row[30],
 
-            "retrieved_at":
+            "stored_row_count":
                 row[31],
 
+            "retrieved_at":
+                row[32],
+
             "review_status":
-                row[32]
+                row[33]
         }
 
         for row
